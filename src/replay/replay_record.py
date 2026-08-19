@@ -12,7 +12,7 @@ from ..market.continuous_contract import continuous_id_for
 from ..market.futures import pnl as futures_pnl
 from ..market.instrument import resolve_instrument
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RECORD_STATUSES = ("planned", "submitted", "filled", "closed")
 
 
@@ -20,22 +20,20 @@ def new_record_id() -> str:
     return str(uuid.uuid4())
 
 
-def capture_decision_context(chart_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Capture chart workspace context at decision time (15A minimal snapshot)."""
-    if chart_state is None:
-        from ..charting.chart_state import get_chart_state
+def capture_decision_context(
+    plan: Dict[str, Any],
+    chart_state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Capture chart workspace and market snapshot at decision time."""
+    from .market_snapshot import capture_market_snapshot
 
-        chart_state = get_chart_state().get_state()
-
-    indicators = chart_state.get("indicators") or []
-    drawings = chart_state.get("drawings") or []
+    instrument_id = plan.get("instrument_id") or plan.get("symbol", "")
+    snapshot = capture_market_snapshot(instrument_id, chart_state=chart_state)
     return {
-        "timeframe": chart_state.get("timeframe"),
-        "period": chart_state.get("period"),
-        "captured_at": datetime.now().isoformat(),
-        "indicators": deepcopy(indicators),
-        "drawings": deepcopy(drawings),
-        "market_snapshot_ref": None,
+        "timeframe": snapshot["chart"]["timeframe"],
+        "period": snapshot["chart"]["period"],
+        "captured_at": snapshot["captured_at"],
+        "market_snapshot": snapshot,
     }
 
 
@@ -72,7 +70,7 @@ def build_replay_record_from_plan(
         "mode": mode,
         "plan_id": plan["id"],
         "market": build_market_identity(plan),
-        "decision_context": capture_decision_context(chart_state),
+        "decision_context": capture_decision_context(plan, chart_state),
         "trade_intent": deepcopy(plan),
         "execution": {
             "status": "pending",

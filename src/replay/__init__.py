@@ -1,6 +1,7 @@
 """OctoMarket replay and learning engine."""
 
 from .comparison import compare_plan_to_outcome
+from .market_snapshot import capture_market_snapshot
 from .replay_memory import ReplayMemory, get_replay_memory, reset_replay_memory
 from .replay_record import build_replay_record_from_plan
 from .replay_session import ReplaySessionManager, get_replay_session
@@ -10,6 +11,7 @@ __all__ = [
     "ReplaySessionManager",
     "get_replay_session",
     "compare_plan_to_outcome",
+    "capture_market_snapshot",
     "ReplayStore",
     "get_replay_store",
     "reset_replay_store",

@@ -84,23 +84,44 @@ def _forex_plan(**overrides):
 
 
 class TestReplayRecordModel(unittest.TestCase):
-    def test_stock_record_has_no_continuous_id(self):
+    @unittest.mock.patch("src.replay.market_snapshot._load_candles")
+    def test_stock_record_has_no_continuous_id(self, mock_load):
+        mock_load.return_value = {
+            "symbol": "AAPL", "timeframe": "1d", "period": "5d", "count": 0,
+            "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+        }
         record = build_replay_record_from_plan(_stock_plan())
         self.assertEqual(record["market"]["instrument_id"], "AAPL")
         self.assertNotIn("continuous_id", record["market"])
+        self.assertIn("market_snapshot", record["decision_context"])
 
-    def test_forex_record_has_no_continuous_id(self):
+    @unittest.mock.patch("src.replay.market_snapshot._load_candles")
+    def test_forex_record_has_no_continuous_id(self, mock_load):
+        mock_load.return_value = {
+            "symbol": "EURUSD", "timeframe": "1d", "period": "5d", "count": 0,
+            "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+        }
         record = build_replay_record_from_plan(_forex_plan())
         self.assertEqual(record["market"]["asset_class"], "FOREX")
         self.assertNotIn("continuous_id", record["market"])
 
-    def test_futures_record_preserves_continuous_identity(self):
+    @unittest.mock.patch("src.replay.market_snapshot._load_candles")
+    def test_futures_record_preserves_continuous_identity(self, mock_load):
+        mock_load.return_value = {
+            "symbol": "ES", "timeframe": "1d", "period": "5d", "count": 0,
+            "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+        }
         record = build_replay_record_from_plan(_futures_plan())
         self.assertEqual(record["market"]["continuous_id"], "ES")
         self.assertEqual(record["market"]["instrument_id"], "ESZ26")
         self.assertEqual(record["market"]["contract"], "ESZ26")
 
-    def test_outcome_calculation_stock(self):
+    @unittest.mock.patch("src.replay.market_snapshot._load_candles")
+    def test_outcome_calculation_stock(self, mock_load):
+        mock_load.return_value = {
+            "symbol": "AAPL", "timeframe": "1d", "period": "5d", "count": 0,
+            "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+        }
         record = build_replay_record_from_plan(_stock_plan())
         apply_entry_fill(record, {"id": "o1", "side": "buy", "quantity": 10}, {"fill_price": 185.0, "quantity": 10})
         outcome = calculate_outcome(record, exit_price=190.0, exit_reason="take_profit")
@@ -114,8 +135,17 @@ class TestReplayStorePersistence(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.store_path = Path(self.temp_dir.name) / "records.jsonl"
         self.store = ReplayStore(path=self.store_path)
+        self._candle_patcher = unittest.mock.patch(
+            "src.replay.market_snapshot._load_candles",
+            return_value={
+                "symbol": "AAPL", "timeframe": "1d", "period": "5d", "count": 0,
+                "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+            },
+        )
+        self._candle_patcher.start()
 
     def tearDown(self):
+        self._candle_patcher.stop()
         self.temp_dir.cleanup()
 
     def test_save_and_reload(self):
@@ -144,8 +174,17 @@ class TestReplayMemoryLifecycle(unittest.TestCase):
         self.store = ReplayStore(path=self.store_path)
         self.memory = ReplayMemory(store=self.store)
         self.plans = TradePlanManager(record_replay=False)
+        self._candle_patcher = unittest.mock.patch(
+            "src.replay.market_snapshot._load_candles",
+            return_value={
+                "symbol": "AAPL", "timeframe": "1d", "period": "5d", "count": 0,
+                "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+            },
+        )
+        self._candle_patcher.start()
 
     def tearDown(self):
+        self._candle_patcher.stop()
         self.temp_dir.cleanup()
 
     def test_plan_to_close_lifecycle(self):
@@ -215,7 +254,12 @@ class TestTradePlanReplayIntegration(unittest.TestCase):
         self.temp_dir.cleanup()
 
     @unittest.mock.patch("src.replay.replay_memory.get_replay_memory")
-    def test_create_plan_initializes_record(self, mock_get_memory):
+    @unittest.mock.patch("src.replay.market_snapshot._load_candles")
+    def test_create_plan_initializes_record(self, mock_load, mock_get_memory):
+        mock_load.return_value = {
+            "symbol": "MSFT", "timeframe": "1d", "period": "5d", "count": 0,
+            "timestamps": [], "open": [], "high": [], "low": [], "close": [], "volume": [],
+        }
         mock_get_memory.return_value = self.memory
         mgr = TradePlanManager(record_replay=True)
         plan = mgr.create_plan({
