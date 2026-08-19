@@ -22,7 +22,14 @@
         .panel { background: var(--bg-tertiary); border: 1px solid var(--border-color); overflow: auto; min-height: 0; }
         .panel-header { background: var(--bg-secondary); padding: 6px 10px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-primary); border-bottom: 1px solid var(--border-color); }
         .watchlist-panel { grid-row: 1 / 3; }
-        .ticket-panel { display: flex; flex-direction: column; }
+        .ticket-panel { display: flex; flex-direction: column; overflow: hidden; }
+        .trade-plan-section { border-bottom: 1px solid var(--border-color); max-height: 52%; overflow: auto; }
+        .order-ticket-section { flex: 1; overflow: auto; min-height: 0; }
+        .plan-status { font-size: 0.65rem; color: var(--accent-warning); text-transform: uppercase; }
+        .plan-metrics { background: var(--bg-secondary); padding: 6px; margin-top: 4px; font-size: 0.72rem; border-radius: 4px; }
+        .btn-plan { background: #444; color: #fff; border: none; font-weight: 600; width: 100%; font-size: 0.75rem; }
+        .btn-plan-review { background: var(--accent-primary); color: #000; }
+        .btn-plan-order { background: var(--accent-success); color: #000; margin-top: 4px; }
         .bottom-panel { grid-column: 2 / 4; display: flex; flex-direction: column; }
         .watchlist-item { padding: 6px 10px; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; justify-content: space-between; font-size: 0.85rem; }
         .watchlist-item:hover, .watchlist-item.active { background: var(--bg-secondary); }
@@ -164,6 +171,45 @@
         </div>
 
         <div class="panel ticket-panel">
+            <div class="trade-plan-section">
+                <div class="panel-header"><i class="fas fa-clipboard-list"></i> Trade Plan <span class="plan-status ms-2" id="planStatus">DRAFT</span></div>
+                <div class="p-2">
+                    <div class="mb-1">
+                        <label class="small text-muted">Symbol</label>
+                        <input type="text" class="form-control form-control-sm" id="planSymbol" value="AAPL" readonly>
+                    </div>
+                    <div class="mb-1">
+                        <label class="small text-muted">Direction</label>
+                        <div>
+                            <label class="me-2 small"><input type="radio" name="planDirection" value="LONG" checked> LONG</label>
+                            <label class="small"><input type="radio" name="planDirection" value="SHORT"> SHORT</label>
+                        </div>
+                    </div>
+                    <div class="row g-1 mb-1">
+                        <div class="col-4"><label class="small text-muted">Entry</label><input type="number" step="0.01" class="form-control form-control-sm" id="planEntry"></div>
+                        <div class="col-4"><label class="small text-muted">Stop</label><input type="number" step="0.01" class="form-control form-control-sm" id="planStop"></div>
+                        <div class="col-4"><label class="small text-muted">Target</label><input type="number" step="0.01" class="form-control form-control-sm" id="planTarget"></div>
+                    </div>
+                    <div class="mb-1">
+                        <label class="small text-muted">Qty</label>
+                        <input type="number" class="form-control form-control-sm" id="planQty" value="10">
+                    </div>
+                    <div class="plan-metrics">
+                        <div>Risk: <strong id="planRiskPts">—</strong> pts · $<strong id="planRiskUsd">—</strong></div>
+                        <div>Reward: <strong id="planRewardPts">—</strong> pts · $<strong id="planRewardUsd">—</strong></div>
+                        <div>R:R <strong id="planRR">—</strong></div>
+                        <div class="text-muted small mt-1" id="planEntrySource"></div>
+                    </div>
+                    <div class="mb-1 mt-1">
+                        <label class="small text-muted">Market Thesis</label>
+                        <textarea class="form-control form-control-sm" id="planThesis" rows="2" placeholder="Breakout above resistance"></textarea>
+                    </div>
+                    <button class="btn btn-plan btn-plan-review btn-sm mt-1" id="reviewPlanBtn">REVIEW PLAN</button>
+                    <button class="btn btn-plan btn-plan-order btn-sm" id="createOrderFromPlanBtn">CREATE ORDER</button>
+                    <div id="planResult" class="small mt-1 text-muted"></div>
+                </div>
+            </div>
+            <div class="order-ticket-section">
             <div class="panel-header"><i class="fas fa-receipt"></i> Order Ticket</div>
             <div class="p-2 flex-fill">
                 <div class="mb-1">
@@ -204,7 +250,8 @@
                 <div id="orderResult" class="small mt-1 text-muted"></div>
             </div>
             <div class="panel-header"><i class="fas fa-robot"></i> Commentary</div>
-            <div class="p-2 small" id="commentaryPanel" style="max-height:100px;overflow:auto"></div>
+            <div class="p-2 small" id="commentaryPanel" style="max-height:80px;overflow:auto"></div>
+            </div>
         </div>
 
         <div class="panel bottom-panel">
@@ -237,6 +284,8 @@
         let selectedTimeframe = '1d';
         let terminalChart = null;
         let pendingCancelId = null;
+        let currentPlanId = null;
+        let planEntrySource = null;
 
         async function api(url, opts = {}) {
             const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -322,6 +371,191 @@
             }
         }
 
+        function getPlanDirection() {
+            const picked = document.querySelector('input[name="planDirection"]:checked');
+            return picked ? picked.value : 'LONG';
+        }
+
+        function buildSetupSnapshot() {
+            const indicators = getActiveIndicators().map((key) => ({ key, active: true }));
+            const drawings = (terminalChart && terminalChart.drawings) ? terminalChart.drawings.map((d) => ({
+                id: d.id,
+                type: d.type,
+                label: d.label || d.type,
+                price: d.price || d.top || null,
+            })) : [];
+            return { indicators, drawings };
+        }
+
+        function findNearestDrawingPrice(price) {
+            if (!terminalChart || !terminalChart.drawings) return null;
+            let best = null;
+            let bestDist = Infinity;
+            terminalChart.drawings.forEach((d) => {
+                let p = null;
+                if (d.type === 'horizontal') p = d.price;
+                else if (d.type === 'zone') p = d.top;
+                if (p == null) return;
+                const dist = Math.abs(p - price);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = d;
+                }
+            });
+            if (best && bestDist < price * 0.02) {
+                return { drawing: best, price: best.type === 'horizontal' ? best.price : best.top };
+            }
+            return null;
+        }
+
+        function updatePlanMetricsDisplay(plan) {
+            const set = (id, val) => { document.getElementById(id).textContent = val ?? '—'; };
+            if (!plan) {
+                set('planRiskPts', '—'); set('planRiskUsd', '—');
+                set('planRewardPts', '—'); set('planRewardUsd', '—'); set('planRR', '—');
+                return;
+            }
+            set('planRiskPts', plan.risk_points != null ? plan.risk_points.toFixed(2) : '—');
+            set('planRewardPts', plan.reward_points != null ? plan.reward_points.toFixed(2) : '—');
+            set('planRiskUsd', plan.dollar_risk != null ? plan.dollar_risk.toFixed(2) : '—');
+            set('planRewardUsd', plan.dollar_reward != null ? plan.dollar_reward.toFixed(2) : '—');
+            set('planRR', plan.risk_reward != null ? plan.risk_reward + ':1' : '—');
+            document.getElementById('planStatus').textContent = plan.status || 'DRAFT';
+            const src = plan.entry && plan.entry.source;
+            document.getElementById('planEntrySource').textContent = src
+                ? `Entry source: Chart Drawing #${(src.id || '').slice(0, 8)}`
+                : '';
+        }
+
+        function getPlanFormPayload() {
+            const entryPrice = parseFloat(document.getElementById('planEntry').value);
+            const payload = {
+                symbol: selectedSymbol,
+                direction: getPlanDirection(),
+                thesis: document.getElementById('planThesis').value.trim(),
+                quantity: parseInt(document.getElementById('planQty').value) || 10,
+                entry: { price: entryPrice },
+                stop_loss: { price: parseFloat(document.getElementById('planStop').value) },
+                target: { price: parseFloat(document.getElementById('planTarget').value) },
+                setup: buildSetupSnapshot(),
+            };
+            if (planEntrySource) {
+                payload.entry.source = planEntrySource;
+            }
+            return payload;
+        }
+
+        function applyPlanToForm(plan) {
+            if (!plan) return;
+            currentPlanId = plan.id;
+            document.getElementById('planSymbol').value = plan.symbol;
+            document.querySelector(`input[name="planDirection"][value="${plan.direction}"]`).checked = true;
+            document.getElementById('planEntry').value = plan.entry?.price ?? '';
+            document.getElementById('planStop').value = plan.stop_loss?.price ?? '';
+            document.getElementById('planTarget').value = plan.target?.price ?? '';
+            document.getElementById('planQty').value = plan.quantity ?? 10;
+            document.getElementById('planThesis').value = plan.thesis ?? '';
+            planEntrySource = plan.entry?.source || null;
+            updatePlanMetricsDisplay(plan);
+        }
+
+        function syncPlanToOrderTicket(plan) {
+            if (!plan) return;
+            document.getElementById('orderSymbol').value = plan.symbol;
+            document.getElementById('orderSide').value = plan.direction === 'LONG' ? 'buy' : 'sell';
+            document.getElementById('orderType').value = 'limit';
+            document.getElementById('orderQty').value = plan.quantity;
+            document.getElementById('orderPrice').value = plan.entry?.price ?? '';
+            document.getElementById('orderSL').value = plan.stop_loss?.price ?? '';
+            document.getElementById('orderTP').value = plan.target?.price ?? '';
+            refreshChartPriceLines();
+            reviewOrder();
+        }
+
+        async function loadTradePlan() {
+            document.getElementById('planSymbol').value = selectedSymbol;
+            const data = await api(`/api/trade-plan/${encodeURIComponent(selectedSymbol)}`);
+            const draft = (data.plans || []).find((p) => p.status === 'DRAFT' || p.status === 'REVIEWED' || p.status === 'APPROVED');
+            if (draft) {
+                applyPlanToForm(draft);
+            } else {
+                currentPlanId = null;
+                planEntrySource = null;
+                document.getElementById('planStatus').textContent = 'DRAFT';
+                updatePlanMetricsDisplay(null);
+            }
+        }
+
+        async function saveOrUpdatePlan() {
+            const payload = getPlanFormPayload();
+            if (currentPlanId) {
+                const resp = await api(`/api/trade-plan/${currentPlanId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(payload),
+                });
+                if (resp.error) throw new Error(resp.error);
+                applyPlanToForm(resp.plan);
+                return resp.plan;
+            }
+            const resp = await api('/api/trade-plan', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            if (resp.error) throw new Error(resp.error);
+            applyPlanToForm(resp.plan);
+            return resp.plan;
+        }
+
+        async function reviewTradePlan() {
+            const el = document.getElementById('planResult');
+            try {
+                await saveOrUpdatePlan();
+                const resp = await api(`/api/trade-plan/${currentPlanId}/review`, {
+                    method: 'POST',
+                    body: JSON.stringify({ setup: buildSetupSnapshot() }),
+                });
+                if (resp.error) throw new Error(resp.error);
+                applyPlanToForm(resp.plan);
+                el.textContent = 'Plan reviewed — ready for approval';
+                el.className = 'small mt-1 text-success';
+            } catch (err) {
+                el.textContent = err.message;
+                el.className = 'small mt-1 text-danger';
+            }
+        }
+
+        async function createOrderFromPlan() {
+            const el = document.getElementById('planResult');
+            try {
+                await saveOrUpdatePlan();
+                const resp = await api(`/api/trade-plan/${currentPlanId}/create-order`, { method: 'POST' });
+                if (resp.error) throw new Error(resp.error);
+                applyPlanToForm(resp.plan);
+                syncPlanToOrderTicket(resp.plan);
+                el.textContent = `Order ${resp.order.status} from trade plan`;
+                el.className = 'small mt-1 text-success';
+                refreshBottomPanel();
+                loadOrders();
+            } catch (err) {
+                el.textContent = err.message;
+                el.className = 'small mt-1 text-danger';
+            }
+        }
+
+        function setPlanEntryFromPrice(price) {
+            document.getElementById('planEntry').value = price;
+            const match = findNearestDrawingPrice(price);
+            if (match) {
+                planEntrySource = {
+                    type: 'drawing',
+                    id: match.drawing.id,
+                    label: match.drawing.label || match.drawing.type,
+                };
+                document.getElementById('planEntrySource').textContent =
+                    `Entry source: Chart Drawing #${match.drawing.id.slice(0, 8)}`;
+            }
+        }
+
         async function initTerminalChart() {
             const state = await api('/api/chart/state');
             selectedSymbol = (state.symbol || 'AAPL').toUpperCase();
@@ -340,11 +574,13 @@
                 onCrosshair: updateCrosshairReadout,
                 onClickPrice: (price) => {
                     document.getElementById('orderPrice').value = price;
+                    setPlanEntryFromPrice(price);
                     refreshChartPriceLines();
                     reviewOrder();
                 },
             });
             await loadChart();
+            await loadTradePlan();
         }
 
         async function loadChart() {
@@ -374,6 +610,7 @@
                     document.getElementById('orderSymbol').value = selectedSymbol;
                     await loadWatchlist();
                     await loadChart();
+                    await loadTradePlan();
                 };
             });
         }
@@ -517,6 +754,19 @@
         });
 
         document.getElementById('indicatorToggles').addEventListener('change', refreshIndicators);
+
+        document.getElementById('reviewPlanBtn').onclick = reviewTradePlan;
+        document.getElementById('createOrderFromPlanBtn').onclick = createOrderFromPlan;
+        ['planEntry','planStop','planTarget','planQty'].forEach(id => {
+            document.getElementById(id).addEventListener('input', async () => {
+                try {
+                    if (document.getElementById('planEntry').value && document.getElementById('planStop').value && document.getElementById('planTarget').value) {
+                        const plan = await saveOrUpdatePlan();
+                        updatePlanMetricsDisplay(plan);
+                    }
+                } catch (_) { /* validation on incomplete form */ }
+            });
+        });
 
         document.getElementById('drawToolbar').addEventListener('click', (e) => {
             const btn = e.target.closest('[data-draw-tool]');
