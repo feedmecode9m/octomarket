@@ -2,9 +2,11 @@
 
 import threading
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from ..market.watchlist import get_sector
 
 
 @dataclass
@@ -124,6 +126,72 @@ class PaperPortfolio:
                     value += pos.quantity * price
             return round(value, 2)
 
+    def get_allocation(self, prices: Dict[str, float]) -> Dict[str, float]:
+        total = self.get_portfolio_value(prices)
+        if total <= 0:
+            return {}
+        with self._lock:
+            allocation = {"cash": round(self.cash / total * 100, 1)}
+            for symbol, pos in self.positions.items():
+                price = prices.get(symbol, 0)
+                if price > 0:
+                    allocation[symbol] = round(pos.quantity * price / total * 100, 1)
+            return allocation
+
+    def get_sector_exposure(self, prices: Dict[str, float]) -> Dict[str, float]:
+        total = self.get_portfolio_value(prices)
+        if total <= 0:
+            return {}
+        sectors: Dict[str, float] = {}
+        with self._lock:
+            for symbol, pos in self.positions.items():
+                price = prices.get(symbol, 0)
+                if price > 0:
+                    sector = get_sector(symbol)
+                    sectors[sector] = sectors.get(sector, 0) + pos.quantity * price
+        return {s: round(v / total * 100, 1) for s, v in sectors.items()}
+
+    def get_risk_score(self, prices: Dict[str, float]) -> float:
+        """0-100 risk score based on concentration, cash reserves, and position count."""
+        total = self.get_portfolio_value(prices)
+        if total <= 0:
+            return 0.0
+
+        score = 0.0
+        allocation = self.get_allocation(prices)
+        cash_pct = allocation.get("cash", 0)
+
+        max_position = max(
+            (v for k, v in allocation.items() if k != "cash"),
+            default=0,
+        )
+        if max_position > 50:
+            score += 40
+        elif max_position > 30:
+            score += 25
+        elif max_position > 20:
+            score += 10
+
+        sector_exp = self.get_sector_exposure(prices)
+        max_sector = max(sector_exp.values(), default=0)
+        if max_sector > 70:
+            score += 30
+        elif max_sector > 50:
+            score += 15
+
+        if cash_pct < 5:
+            score += 20
+        elif cash_pct < 10:
+            score += 10
+
+        with self._lock:
+            if len(self.positions) >= 8:
+                score += 10
+            elif len(self.positions) >= 5:
+                score += 5
+
+        return min(round(score, 1), 100.0)
+
     def to_dict(self, current_prices: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         current_prices = current_prices or {}
         with self._lock:
@@ -157,6 +225,9 @@ class PaperPortfolio:
                 "total_slippage": round(self.total_slippage, 2),
                 "trade_count": len(self.trade_history),
                 "position_history": list(self.position_history),
+                "allocation": self.get_allocation(current_prices),
+                "sector_exposure": self.get_sector_exposure(current_prices),
+                "risk_score": self.get_risk_score(current_prices),
             }
 
     def _execute(
