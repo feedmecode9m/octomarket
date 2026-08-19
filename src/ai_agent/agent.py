@@ -318,3 +318,137 @@ class TradingCoachAgent:
             feedback += " After each losing trade, write one sentence about what you'd do differently."
 
         return feedback
+
+    def pre_trade_review(
+        self,
+        action: str,
+        symbol: str,
+        market_state: Dict[str, Any],
+        portfolio: Dict[str, Any],
+        reason: str = "",
+        strategy: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Review a planned trade before execution — 'Why are you entering?'"""
+        indicators = market_state.get("indicators", market_state)
+        analysis = self.market_analyzer.analyze(indicators, market_state.get("prices"))
+        risk = self.risk_coach.assess_risk(portfolio, indicators, strategy)
+        confidence = self.trade_confidence_score(indicators, strategy or {}, risk["risk_level"], analysis)
+
+        action = action.upper()
+        questions = []
+        guidance = []
+
+        if action == "BUY":
+            questions.append("Why are you entering this trade now?")
+            questions.append("Where is your stop loss and profit target?")
+            if analysis["trend"] == "bearish":
+                guidance.append("Caution: trend is bearish — buying against the trend requires strong justification.")
+            if analysis["rsi"].get("zone") == "overbought":
+                guidance.append("RSI is overbought — consider waiting for a pullback.")
+            if not reason:
+                guidance.append("Write your reason before entering — undisciplined entries are the #1 beginner mistake.")
+        elif action == "SELL":
+            questions.append("Why are you exiting — target hit, stop loss, or thesis invalidated?")
+            if analysis["trend"] == "bullish":
+                guidance.append("Trend is still bullish — make sure you're not selling too early out of fear.")
+        else:
+            questions.append("Why hold? Is waiting for a clearer signal the right choice?")
+            guidance.append("Holding is valid when no edge exists — patience is a skill.")
+
+        return {
+            "action": action,
+            "symbol": symbol.upper(),
+            "prompt": "Why are you entering?" if action == "BUY" else "Why are you exiting?" if action == "SELL" else "Why hold?",
+            "questions": questions,
+            "guidance": guidance,
+            "trade_confidence_score": confidence,
+            "market_trend": analysis["trend"],
+            "risk_level": risk["risk_level"],
+            "approved": confidence >= 40 or action == "HOLD",
+            "user_reason": reason,
+        }
+
+    def post_trade_review(
+        self,
+        trade: Dict[str, Any],
+        outcome: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Review a completed trade — 'What happened?'"""
+        outcome = outcome or {}
+        action = trade.get("action", trade.get("type", "")).upper()
+        fill_price = trade.get("fill_price", trade.get("price", 0))
+        pnl = trade.get("realized_pnl", outcome.get("pnl", 0))
+
+        reflection = []
+        lessons = []
+
+        if action == "BUY":
+            reflection.append(f"You entered {trade.get('symbol', '')} at ${fill_price:.2f}.")
+            reflection.append("What happened? Monitor whether price respects your thesis.")
+        elif action == "SELL":
+            reflection.append(f"You exited at ${fill_price:.2f}.")
+            if pnl and float(pnl) > 0:
+                reflection.append("What happened? Profitable exit — note what confirmed your thesis.")
+                lessons.append("Winning trade: document the setup so you can repeat it.")
+            elif pnl and float(pnl) < 0:
+                reflection.append("What happened? Loss taken — review if stop was appropriate.")
+                lessons.append("Losing trade: write one sentence about what you'd do differently.")
+            else:
+                reflection.append("What happened? Review whether the exit matched your plan.")
+
+        commission = trade.get("commission", 0)
+        if commission:
+            lessons.append(f"Commission cost ${commission:.2f} — factor fees into every trade plan.")
+
+        return {
+            "prompt": "What happened?",
+            "reflection": reflection,
+            "lessons": lessons,
+            "trade": trade,
+            "outcome_summary": outcome,
+        }
+
+    def trade_confidence_score(
+        self,
+        indicators: Dict[str, Any],
+        strategy: Dict[str, Any],
+        risk_level: str = "moderate",
+        market_analysis: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Score 0-100 based on strategy alignment, risk level, and market conditions."""
+        score = 50
+
+        if market_analysis is None:
+            market_analysis = self.market_analyzer.analyze(indicators)
+
+        trend = market_analysis.get("trend", "neutral")
+        rsi_zone = market_analysis.get("rsi", {}).get("zone", "neutral")
+
+        if trend == "bullish":
+            score += 15
+        elif trend == "bearish":
+            score -= 10
+
+        if rsi_zone == "neutral":
+            score += 10
+        elif rsi_zone == "overbought":
+            score -= 15
+        elif rsi_zone == "oversold":
+            score += 5
+
+        momentum_dir = market_analysis.get("momentum", {}).get("direction", "flat")
+        if momentum_dir in ("up", "strong_up"):
+            score += 10
+        elif momentum_dir in ("down", "strong_down"):
+            score -= 10
+
+        if risk_level == "low":
+            score += 10
+        elif risk_level == "high":
+            score -= 20
+
+        vol_level = market_analysis.get("volatility", {}).get("level", "moderate")
+        if vol_level == "high":
+            score -= 5
+
+        return max(0, min(100, score))

@@ -181,3 +181,37 @@ def coach_summary():
 
     except Exception as e:
         return jsonify({"error": f"Coach summary failed: {str(e)}"}), 500
+
+
+@ai_bp.route("/pre-trade-review", methods=["POST"])
+def pre_trade_review():
+    """Review a planned trade before execution."""
+    try:
+        data = request.get_json(silent=True) or {}
+        action = data.get("action", "BUY")
+        symbol = data.get("symbol", "AAPL")
+        result = _coach.pre_trade_review(
+            action=action,
+            symbol=symbol,
+            market_state=data.get("market_state", {"indicators": data.get("indicators", {})}),
+            portfolio=data.get("portfolio", {}),
+            reason=data.get("reason", ""),
+            strategy=data.get("strategy"),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@ai_bp.route("/post-trade-review", methods=["POST"])
+def post_trade_review():
+    """Review a completed trade."""
+    try:
+        data = request.get_json(silent=True) or {}
+        trade = data.get("trade")
+        if not trade:
+            return jsonify({"error": "trade is required"}), 400
+        result = _coach.post_trade_review(trade, data.get("outcome"))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
