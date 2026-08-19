@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .timeframe import DEFAULT_INTERVAL, normalize_interval, validate_timeframe
+from ..market.instrument import resolve_instrument
 
 
 class ChartStateManager:
@@ -23,7 +24,10 @@ class ChartStateManager:
     def update(self, **fields) -> Dict[str, Any]:
         with self._lock:
             if "symbol" in fields and fields["symbol"]:
-                self._state["symbol"] = str(fields["symbol"]).upper()
+                self._apply_instrument(str(fields["symbol"]))
+
+            if "instrument_id" in fields and fields["instrument_id"]:
+                self._apply_instrument(str(fields["instrument_id"]))
 
             if "timeframe" in fields and fields["timeframe"]:
                 interval = normalize_interval(fields["timeframe"])
@@ -80,6 +84,13 @@ class ChartStateManager:
             self._state["updated_at"] = datetime.now().isoformat()
             return deepcopy(entry)
 
+    def _apply_instrument(self, raw: str):
+        instrument = resolve_instrument(raw)
+        self._state["symbol"] = instrument.symbol
+        self._state["instrument_id"] = instrument.instrument_id
+        self._state["asset_class"] = instrument.asset_class.value
+        self._state["display_symbol"] = instrument.display_symbol()
+
     def reset(self):
         with self._lock:
             self._state = self._default_state()
@@ -87,6 +98,9 @@ class ChartStateManager:
     def _default_state(self) -> Dict[str, Any]:
         return {
             "symbol": "AAPL",
+            "instrument_id": "AAPL",
+            "asset_class": "STOCK",
+            "display_symbol": "AAPL",
             "timeframe": DEFAULT_INTERVAL,
             "period": "5d",
             "zoom": {"start": None, "end": None},

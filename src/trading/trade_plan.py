@@ -6,6 +6,12 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from ..market.asset_class import AssetClass
+from ..market.forex import lot_to_units, pip_distance, pip_value
+from ..market.instrument import resolve_instrument
+from .position_sizing import calculate_forex_size
+from .risk import account_risk_percent, reward_ratio
+
 PLAN_STATUSES = ("DRAFT", "REVIEWED", "APPROVED", "ORDER_CREATED", "COMPLETED")
 DIRECTIONS = ("LONG", "SHORT")
 
@@ -59,12 +65,103 @@ def calculate_risk_reward(
     }
 
 
-def validate_plan_levels(plan: Dict[str, Any]) -> None:
-    """Validate entry/stop/target for direction."""
+def normalize_plan_metrics(
+    plan: Dict[str, Any],
+    account_balance: Optional[float] = None,
+    risk_percent: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Enrich plan with instrument-aware risk metrics."""
+    raw_id = plan.get("instrument_id") or plan.get("symbol", "")
+    instrument = resolve_instrument(raw_id)
+    plan["symbol"] = instrument.symbol
+    plan["instrument_id"] = instrument.instrument_id
+    plan["asset_class"] = (
+        plan.get("asset_class") or instrument.asset_class.value
+    )
+    if isinstance(plan["asset_class"], AssetClass):
+        plan["asset_class"] = plan["asset_class"].value
+
     direction = (plan.get("direction") or "LONG").upper()
     entry = _price_from_level(plan.get("entry"))
     stop = _price_from_level(plan.get("stop_loss"))
     target = _price_from_level(plan.get("target"))
+
+    if instrument.asset_class == AssetClass.FOREX:
+        return _apply_forex_metrics(plan, instrument.symbol, direction, entry, stop, target, account_balance, risk_percent)
+
+    quantity = int(plan.get("quantity") or 10)
+    metrics = calculate_risk_reward(direction, entry, stop, target, quantity)
+    plan.update(metrics)
+    plan["quantity_unit"] = "shares"
+    return plan
+
+
+def _apply_forex_metrics(
+    plan: Dict[str, Any],
+    symbol: str,
+    direction: str,
+    entry: float,
+    stop: float,
+    target: float,
+    account_balance: Optional[float],
+    risk_percent: Optional[float],
+) -> Dict[str, Any]:
+    pip_risk = pip_distance(entry, stop, symbol)
+    reward_pips = pip_distance(entry, target, symbol)
+
+    if account_balance and risk_percent:
+        sizing = calculate_forex_size(account_balance, risk_percent, entry, stop, symbol)
+        plan["position_lots"] = sizing["lots"]
+        plan["quantity"] = sizing["units"]
+        plan["risk_amount"] = sizing["risk_amount"]
+        plan["risk_percent"] = risk_percent
+    elif plan.get("position_lots") is not None:
+        lots = float(plan["position_lots"])
+        plan["quantity"] = lot_to_units(lots)
+        per_lot = pip_value(symbol, entry, lots=1.0)
+        plan["risk_amount"] = round(pip_risk * per_lot * lots, 2)
+    else:
+        quantity = int(plan.get("quantity") or lot_to_units(1.0))
+        lots = round(quantity / 100_000, 4)
+        plan["position_lots"] = lots
+        per_lot = pip_value(symbol, entry, lots=1.0)
+        plan["risk_amount"] = round(pip_risk * per_lot * lots, 2)
+
+    plan["pip_risk"] = pip_risk
+    plan["reward_pips"] = reward_pips
+    plan["quantity_unit"] = "lots"
+    plan["risk_reward"] = reward_ratio(1.0, reward_pips / pip_risk) if pip_risk > 0 else 0
+    plan["dollar_risk"] = plan["risk_amount"]
+    plan["dollar_reward"] = round(
+        plan["risk_amount"] * plan["risk_reward"] if plan.get("risk_reward") else 0,
+        2,
+    )
+    if account_balance and plan.get("risk_amount"):
+        plan["account_risk_percent"] = account_risk_percent(plan["risk_amount"], account_balance)
+    return plan
+
+
+def validate_plan_levels(plan: Dict[str, Any]) -> None:
+    """Validate entry/stop/target for direction."""
+    asset_class = plan.get("asset_class", AssetClass.STOCK.value)
+    direction = (plan.get("direction") or "LONG").upper()
+    entry = _price_from_level(plan.get("entry"))
+    stop = _price_from_level(plan.get("stop_loss"))
+    target = _price_from_level(plan.get("target"))
+
+    if asset_class == AssetClass.FOREX.value:
+        if direction == "LONG":
+            if stop >= entry:
+                raise ValueError("Stop loss must be below entry for LONG")
+            if target <= entry:
+                raise ValueError("Target must be above entry for LONG")
+        else:
+            if stop <= entry:
+                raise ValueError("Stop loss must be above entry for SHORT")
+            if target >= entry:
+                raise ValueError("Target must be below entry for SHORT")
+        return
+
     quantity = int(plan.get("quantity") or 1)
     calculate_risk_reward(direction, entry, stop, target, quantity)
 
@@ -98,7 +195,8 @@ class TradePlanManager:
         self._plans: Dict[str, Dict[str, Any]] = {}
 
     def create_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        symbol = str(data.get("symbol", "")).upper()
+        raw = data.get("symbol") or data.get("instrument_id") or ""
+        symbol = str(raw).upper()
         if not symbol:
             raise ValueError("Symbol is required")
 
@@ -114,6 +212,8 @@ class TradePlanManager:
         plan = {
             "id": str(uuid.uuid4()),
             "symbol": symbol,
+            "instrument_id": str(data.get("instrument_id") or symbol).upper(),
+            "asset_class": data.get("asset_class"),
             "direction": direction,
             "thesis": data.get("thesis") or "",
             "entry": entry,
@@ -127,15 +227,14 @@ class TradePlanManager:
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
         }
+        if data.get("position_lots") is not None:
+            plan["position_lots"] = float(data["position_lots"])
 
-        metrics = calculate_risk_reward(
-            direction,
-            entry["price"],
-            stop["price"],
-            target["price"],
-            quantity,
+        normalize_plan_metrics(
+            plan,
+            account_balance=data.get("account_balance"),
+            risk_percent=data.get("risk_percent"),
         )
-        plan.update(metrics)
         validate_plan_levels(plan)
 
         with self._lock:
@@ -177,15 +276,14 @@ class TradePlanManager:
                 plan["target"] = _normalize_level(data["target"])
             if data.get("setup") is not None:
                 plan["setup"] = self._normalize_setup(data["setup"])
+            if data.get("position_lots") is not None:
+                plan["position_lots"] = float(data["position_lots"])
 
-            metrics = calculate_risk_reward(
-                plan["direction"],
-                plan["entry"]["price"],
-                plan["stop_loss"]["price"],
-                plan["target"]["price"],
-                plan["quantity"],
+            normalize_plan_metrics(
+                plan,
+                account_balance=data.get("account_balance"),
+                risk_percent=data.get("risk_percent"),
             )
-            plan.update(metrics)
             validate_plan_levels(plan)
             plan["updated_at"] = datetime.now().isoformat()
             self._plans[plan_id] = plan
@@ -229,9 +327,14 @@ class TradePlanManager:
                 "plan_id": plan["id"],
                 "thesis": plan["thesis"],
                 "direction": plan["direction"],
+                "asset_class": plan.get("asset_class"),
+                "instrument_id": plan.get("instrument_id"),
                 "setup": plan.get("setup", {}),
                 "entry_source": plan["entry"].get("source"),
                 "risk_reward": plan.get("risk_reward"),
+                "position_lots": plan.get("position_lots"),
+                "pip_risk": plan.get("pip_risk"),
+                "risk_amount": plan.get("risk_amount"),
                 "why_enter": plan["thesis"],
                 "setup_type": self._setup_summary(plan),
                 "invalidation": f"Stop at {plan['stop_loss']['price']}",

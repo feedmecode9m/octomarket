@@ -16,6 +16,8 @@ class TestChartState(unittest.TestCase):
     def test_default_state(self):
         s = self.state.get_state()
         self.assertEqual(s["symbol"], "AAPL")
+        self.assertEqual(s["instrument_id"], "AAPL")
+        self.assertEqual(s["asset_class"], "STOCK")
         self.assertEqual(s["timeframe"], "1d")
         self.assertEqual(s["indicators"], [])
         self.assertEqual(s["drawings"], [])
@@ -23,6 +25,13 @@ class TestChartState(unittest.TestCase):
     def test_update_symbol(self):
         updated = self.state.update(symbol="tsla")
         self.assertEqual(updated["symbol"], "TSLA")
+        self.assertEqual(updated["instrument_id"], "TSLA")
+
+    def test_update_forex_instrument(self):
+        updated = self.state.update(instrument_id="EUR/USD")
+        self.assertEqual(updated["instrument_id"], "EURUSD")
+        self.assertEqual(updated["asset_class"], "FOREX")
+        self.assertEqual(updated["display_symbol"], "EUR/USD")
 
     def test_update_timeframe(self):
         updated = self.state.update(timeframe="15m", period="1mo")
