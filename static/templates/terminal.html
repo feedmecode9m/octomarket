@@ -38,11 +38,20 @@
         .chart-toolbar {
             display: flex; align-items: center; gap: 10px; padding: 4px 10px;
             background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
-            font-size: 0.75rem; flex-shrink: 0;
+            font-size: 0.75rem; flex-shrink: 0; flex-wrap: wrap;
         }
         .chart-toolbar select { max-width: 110px; }
+        .indicator-toggles {
+            display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
+            padding: 4px 10px; background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color); font-size: 0.68rem;
+        }
+        .indicator-toggles label { margin: 0; cursor: pointer; color: #aaa; user-select: none; }
+        .indicator-toggles input { margin-right: 3px; }
+        .chart-stack { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        #chartDiv { flex: 1; min-height: 120px; cursor: crosshair; }
+        .chart-sub { height: 90px; min-height: 70px; border-top: 1px solid var(--border-color); display: none; }
         .crosshair-readout { color: #aaa; margin-left: auto; font-family: monospace; white-space: nowrap; }
-        #chartDiv { flex: 1; min-height: 0; cursor: crosshair; }
         .tab-bar { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
         .tab-btn { padding: 6px 14px; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; border: none; background: none; color: #888; }
         .tab-btn.active { color: var(--accent-primary); border-bottom: 2px solid var(--accent-primary); }
@@ -117,7 +126,22 @@
                 <span class="text-muted">scroll/pinch zoom · drag pan · click set price</span>
                 <span class="crosshair-readout" id="crosshairReadout">O — H — L — C — V —</span>
             </div>
-            <div id="chartDiv"></div>
+            <div class="indicator-toggles" id="indicatorToggles">
+                <span class="text-muted">Indicators:</span>
+                <label><input type="checkbox" data-indicator="SMA20" checked> SMA20</label>
+                <label><input type="checkbox" data-indicator="EMA9"> EMA9</label>
+                <label><input type="checkbox" data-indicator="EMA20"> EMA20</label>
+                <label><input type="checkbox" data-indicator="EMA50"> EMA50</label>
+                <label><input type="checkbox" data-indicator="EMA200"> EMA200</label>
+                <label><input type="checkbox" data-indicator="RSI"> RSI</label>
+                <label><input type="checkbox" data-indicator="MACD"> MACD</label>
+                <label><input type="checkbox" data-indicator="BB"> BB</label>
+            </div>
+            <div class="chart-stack">
+                <div id="chartDiv"></div>
+                <div id="rsiChartDiv" class="chart-sub"></div>
+                <div id="macdChartDiv" class="chart-sub"></div>
+            </div>
         </div>
 
         <div class="panel ticket-panel">
@@ -264,6 +288,21 @@
             });
         }
 
+        function getActiveIndicators() {
+            return Array.from(document.querySelectorAll('#indicatorToggles input[data-indicator]:checked'))
+                .map((el) => el.dataset.indicator);
+        }
+
+        async function refreshIndicators() {
+            if (!terminalChart) return;
+            terminalChart.setActiveIndicators(getActiveIndicators());
+            try {
+                await terminalChart.loadIndicators();
+            } catch (err) {
+                console.warn('Indicator load failed', err);
+            }
+        }
+
         async function initTerminalChart() {
             const state = await api('/api/chart/state');
             selectedSymbol = (state.symbol || 'AAPL').toUpperCase();
@@ -273,9 +312,12 @@
             document.getElementById('chartTimeframe').value = selectedTimeframe;
 
             terminalChart = new OctoMarketTerminalChart('chartDiv', {
+                rsiContainer: 'rsiChartDiv',
+                macdContainer: 'macdChartDiv',
                 fetchJson: api,
                 symbol: selectedSymbol,
                 timeframe: selectedTimeframe,
+                activeIndicators: getActiveIndicators(),
                 onCrosshair: updateCrosshairReadout,
                 onClickPrice: (price) => {
                     document.getElementById('orderPrice').value = price;
@@ -454,6 +496,8 @@
             selectedTimeframe = e.target.value;
             await loadChart();
         });
+
+        document.getElementById('indicatorToggles').addEventListener('change', refreshIndicators);
 
         ['orderQty','orderPrice','orderSL','orderTP','orderType','orderSide'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => { reviewOrder(); refreshChartPriceLines(); });

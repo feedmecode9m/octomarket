@@ -1,6 +1,6 @@
 /**
- * OctoMarket terminal candlestick workspace (Phase 13B).
- * Uses TradingView Lightweight Charts + Phase 13A /api/chart endpoints.
+ * OctoMarket terminal candlestick workspace (Phase 13B/13C).
+ * Uses TradingView Lightweight Charts + Phase 13A/13C chart APIs.
  */
 (function (global) {
     'use strict';
@@ -10,6 +10,15 @@
     const GRID_COLOR = '#333333';
     const BG_COLOR = '#1a1a1a';
     const TEXT_COLOR = '#cccccc';
+
+    const OVERLAY_COLORS = {
+        SMA20: '#ffa502',
+        EMA9: '#00d4ff',
+        EMA20: '#a855f7',
+        EMA50: '#ff6b81',
+        EMA200: '#888888',
+        BB: '#6c757d',
+    };
 
     function isIntraday(timeframe) {
         const tf = (timeframe || '1d').toLowerCase();
@@ -46,11 +55,68 @@
         return { candles, volume, timeframe };
     }
 
+    function lineDataFromSeries(timestamps, values, timeframe) {
+        const data = [];
+        for (let i = 0; i < values.length; i++) {
+            const val = values[i];
+            if (val == null || Number.isNaN(val)) continue;
+            data.push({ time: toChartTime(timestamps[i], timeframe), value: val });
+        }
+        return data;
+    }
+
+    function histogramDataFromSeries(timestamps, values, timeframe) {
+        const data = [];
+        for (let i = 0; i < values.length; i++) {
+            const val = values[i];
+            if (val == null || Number.isNaN(val)) continue;
+            data.push({
+                time: toChartTime(timestamps[i], timeframe),
+                value: val,
+                color: val >= 0 ? 'rgba(0,255,136,0.6)' : 'rgba(255,71,87,0.6)',
+            });
+        }
+        return data;
+    }
+
+    function baseChartOptions(height) {
+        return {
+            layout: {
+                background: { type: 'solid', color: BG_COLOR },
+                textColor: TEXT_COLOR,
+            },
+            grid: {
+                vertLines: { color: GRID_COLOR },
+                horzLines: { color: GRID_COLOR },
+            },
+            crosshair: { mode: global.LightweightCharts.CrosshairMode.Normal },
+            rightPriceScale: { borderColor: GRID_COLOR },
+            timeScale: {
+                borderColor: GRID_COLOR,
+                timeVisible: true,
+                secondsVisible: false,
+            },
+            handleScroll: { mouseWheel: true, pressedMouseMove: true },
+            handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+            height,
+        };
+    }
+
     class OctoMarketTerminalChart {
         constructor(container, options = {}) {
             this.container = typeof container === 'string'
                 ? document.getElementById(container)
                 : container;
+            this.rsiContainer = options.rsiContainer
+                ? (typeof options.rsiContainer === 'string'
+                    ? document.getElementById(options.rsiContainer)
+                    : options.rsiContainer)
+                : null;
+            this.macdContainer = options.macdContainer
+                ? (typeof options.macdContainer === 'string'
+                    ? document.getElementById(options.macdContainer)
+                    : options.macdContainer)
+                : null;
             this.fetchJson = options.fetchJson || (async (url, opts) => {
                 const resp = await fetch(url, {
                     headers: { 'Content-Type': 'application/json' },
@@ -62,10 +128,19 @@
             this.onClickPrice = options.onClickPrice || null;
             this.symbol = options.symbol || 'AAPL';
             this.timeframe = options.timeframe || '1d';
+            this.activeIndicators = new Set(options.activeIndicators || []);
             this.chart = null;
+            this.rsiChart = null;
+            this.macdChart = null;
             this.candleSeries = null;
             this.volumeSeries = null;
+            this.overlaySeries = {};
+            this.rsiSeries = null;
+            this.macdLineSeries = null;
+            this.macdSignalSeries = null;
+            this.macdHistSeries = null;
             this.priceLines = [];
+            this._lastCandlePayload = null;
             this._resizeObserver = null;
             this._initChart();
         }
@@ -74,25 +149,10 @@
             if (!this.container || !global.LightweightCharts) {
                 return;
             }
-            this.chart = global.LightweightCharts.createChart(this.container, {
-                layout: {
-                    background: { type: 'solid', color: BG_COLOR },
-                    textColor: TEXT_COLOR,
-                },
-                grid: {
-                    vertLines: { color: GRID_COLOR },
-                    horzLines: { color: GRID_COLOR },
-                },
-                crosshair: { mode: global.LightweightCharts.CrosshairMode.Normal },
-                rightPriceScale: { borderColor: GRID_COLOR },
-                timeScale: {
-                    borderColor: GRID_COLOR,
-                    timeVisible: true,
-                    secondsVisible: false,
-                },
-                handleScroll: { mouseWheel: true, pressedMouseMove: true },
-                handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-            });
+            this.chart = global.LightweightCharts.createChart(
+                this.container,
+                baseChartOptions(this.container.clientHeight || 300),
+            );
 
             this.candleSeries = this.chart.addCandlestickSeries({
                 upColor: UP_COLOR,
@@ -108,12 +168,7 @@
                 priceScaleId: 'volume',
             });
 
-            this.chart.priceScale('volume').applyOptions({
-                scaleMargins: { top: 0.82, bottom: 0 },
-            });
-            this.candleSeries.priceScale().applyOptions({
-                scaleMargins: { top: 0.05, bottom: 0.28 },
-            });
+            this._applyMainScaleMargins();
 
             this.chart.subscribeCrosshairMove((param) => {
                 if (!this.onCrosshair) return;
@@ -147,15 +202,114 @@
 
             this._resizeObserver = new ResizeObserver(() => this.resize());
             this._resizeObserver.observe(this.container);
+            if (this.rsiContainer) this._resizeObserver.observe(this.rsiContainer);
+            if (this.macdContainer) this._resizeObserver.observe(this.macdContainer);
             this.resize();
         }
 
-        resize() {
-            if (!this.chart || !this.container) return;
-            this.chart.applyOptions({
-                width: this.container.clientWidth,
-                height: this.container.clientHeight,
+        _applyMainScaleMargins() {
+            const hasRsi = this.activeIndicators.has('RSI');
+            const hasMacd = this.activeIndicators.has('MACD');
+            let bottom = 0.28;
+            if (hasRsi) bottom += 0.12;
+            if (hasMacd) bottom += 0.12;
+            this.chart.priceScale('volume').applyOptions({
+                scaleMargins: { top: 0.82, bottom: Math.min(bottom, 0.55) },
             });
+            this.candleSeries.priceScale().applyOptions({
+                scaleMargins: { top: 0.05, bottom: Math.min(bottom + 0.05, 0.6) },
+            });
+        }
+
+        _ensureSubChart(kind) {
+            const isRsi = kind === 'rsi';
+            const container = isRsi ? this.rsiContainer : this.macdContainer;
+            let chart = isRsi ? this.rsiChart : this.macdChart;
+            if (!container) return null;
+            if (!chart) {
+                chart = global.LightweightCharts.createChart(
+                    container,
+                    baseChartOptions(container.clientHeight || 90),
+                );
+                if (isRsi) {
+                    this.rsiChart = chart;
+                    this.rsiSeries = chart.addLineSeries({ color: '#a855f7', lineWidth: 2 });
+                    this.rsiSeries.createPriceLine({ price: 70, color: '#555', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                    this.rsiSeries.createPriceLine({ price: 30, color: '#555', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+                } else {
+                    this.macdChart = chart;
+                    this.macdHistSeries = chart.addHistogramSeries({
+                        priceFormat: { type: 'volume' },
+                        priceScaleId: 'macd-hist',
+                    });
+                    this.macdLineSeries = chart.addLineSeries({ color: '#00d4ff', lineWidth: 2 });
+                    this.macdSignalSeries = chart.addLineSeries({ color: '#ffa502', lineWidth: 1 });
+                }
+                container.style.display = 'block';
+            }
+            return chart;
+        }
+
+        _hideSubChart(kind) {
+            const isRsi = kind === 'rsi';
+            const container = isRsi ? this.rsiContainer : this.macdContainer;
+            const chart = isRsi ? this.rsiChart : this.macdChart;
+            if (chart) {
+                chart.remove();
+                if (isRsi) {
+                    this.rsiChart = null;
+                    this.rsiSeries = null;
+                } else {
+                    this.macdChart = null;
+                    this.macdLineSeries = null;
+                    this.macdSignalSeries = null;
+                    this.macdHistSeries = null;
+                }
+            }
+            if (container) container.style.display = 'none';
+        }
+
+        _clearOverlaySeries() {
+            Object.keys(this.overlaySeries).forEach((key) => {
+                try {
+                    this.chart.removeSeries(this.overlaySeries[key]);
+                } catch (_) { /* ignore */ }
+            });
+            this.overlaySeries = {};
+        }
+
+        _addOverlayLine(key, data, options = {}) {
+            const series = this.chart.addLineSeries({
+                color: options.color || OVERLAY_COLORS[key] || '#ffa502',
+                lineWidth: options.lineWidth || 2,
+                lineStyle: options.lineStyle || 0,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                ...options,
+            });
+            series.setData(data);
+            this.overlaySeries[key] = series;
+        }
+
+        resize() {
+            if (this.chart && this.container) {
+                this.chart.applyOptions({
+                    width: this.container.clientWidth,
+                    height: this.container.clientHeight,
+                });
+            }
+            if (this.rsiChart && this.rsiContainer) {
+                this.rsiChart.applyOptions({
+                    width: this.rsiContainer.clientWidth,
+                    height: this.rsiContainer.clientHeight,
+                });
+            }
+            if (this.macdChart && this.macdContainer) {
+                this.macdChart.applyOptions({
+                    width: this.macdContainer.clientWidth,
+                    height: this.macdContainer.clientHeight,
+                });
+            }
         }
 
         clearPriceLines() {
@@ -190,11 +344,87 @@
             });
         }
 
+        setActiveIndicators(keys) {
+            this.activeIndicators = new Set(keys);
+            this._applyMainScaleMargins();
+        }
+
         async syncState(patch) {
             await this.fetchJson('/api/chart/state', {
                 method: 'PUT',
                 body: JSON.stringify(patch),
             });
+        }
+
+        async loadIndicators() {
+            if (!this.activeIndicators.size || !this._lastCandlePayload) {
+                this._clearOverlaySeries();
+                this._hideSubChart('rsi');
+                this._hideSubChart('macd');
+                return null;
+            }
+            const list = Array.from(this.activeIndicators).join(',');
+            const url = `/api/chart/${encodeURIComponent(this.symbol)}/indicators?timeframe=${encodeURIComponent(this.timeframe)}&indicators=${encodeURIComponent(list)}`;
+            const payload = await this.fetchJson(url);
+            if (payload.error) {
+                throw new Error(payload.error);
+            }
+            this.applyIndicatorPayload(payload);
+            return payload;
+        }
+
+        applyIndicatorPayload(payload) {
+            const tf = payload.timeframe || this.timeframe;
+            const ts = payload.timestamps || [];
+            const ind = payload.indicators || {};
+
+            this._clearOverlaySeries();
+            if (!this.activeIndicators.has('RSI')) this._hideSubChart('rsi');
+            if (!this.activeIndicators.has('MACD')) this._hideSubChart('macd');
+            this._applyMainScaleMargins();
+
+            Object.keys(ind).forEach((key) => {
+                const item = ind[key];
+                if (!this.activeIndicators.has(key) && !this.activeIndicators.has(item.indicator)) {
+                    return;
+                }
+                if (item.indicator === 'SMA' || item.indicator === 'EMA') {
+                    const data = lineDataFromSeries(ts, item.values || [], tf);
+                    this._addOverlayLine(key, data, { color: OVERLAY_COLORS[key] });
+                }
+                if (item.indicator === 'BB') {
+                    ['upper', 'middle', 'lower'].forEach((band, idx) => {
+                        const data = lineDataFromSeries(ts, item[band] || [], tf);
+                        this._addOverlayLine(`${key}_${band}`, data, {
+                            color: OVERLAY_COLORS.BB,
+                            lineWidth: 1,
+                            lineStyle: idx === 1 ? 0 : 2,
+                        });
+                    });
+                }
+            });
+
+            if (this.activeIndicators.has('RSI') && ind.RSI) {
+                const chart = this._ensureSubChart('rsi');
+                const data = lineDataFromSeries(ts, ind.RSI.values || [], tf);
+                if (this.rsiSeries) this.rsiSeries.setData(data);
+                if (chart) chart.timeScale().fitContent();
+            }
+
+            if (this.activeIndicators.has('MACD') && ind.MACD) {
+                const chart = this._ensureSubChart('macd');
+                const macd = ind.MACD;
+                if (this.macdLineSeries) {
+                    this.macdLineSeries.setData(lineDataFromSeries(ts, macd.macd || [], tf));
+                }
+                if (this.macdSignalSeries) {
+                    this.macdSignalSeries.setData(lineDataFromSeries(ts, macd.signal || [], tf));
+                }
+                if (this.macdHistSeries) {
+                    this.macdHistSeries.setData(histogramDataFromSeries(ts, macd.histogram || [], tf));
+                }
+                if (chart) chart.timeScale().fitContent();
+            }
         }
 
         async load(symbol, timeframe) {
@@ -208,16 +438,19 @@
                 throw new Error(payload.error);
             }
 
+            this._lastCandlePayload = payload;
             const { candles, volume } = barsFromPayload(payload);
             if (!candles.length) {
                 this.candleSeries.setData([]);
                 this.volumeSeries.setData([]);
+                await this.loadIndicators();
                 return payload;
             }
 
             this.candleSeries.setData(candles);
             this.volumeSeries.setData(volume);
             this.chart.timeScale().fitContent();
+            await this.loadIndicators();
             return payload;
         }
 
@@ -226,6 +459,8 @@
                 this._resizeObserver.disconnect();
                 this._resizeObserver = null;
             }
+            this._hideSubChart('rsi');
+            this._hideSubChart('macd');
             if (this.chart) {
                 this.chart.remove();
                 this.chart = null;
@@ -234,5 +469,5 @@
     }
 
     global.OctoMarketTerminalChart = OctoMarketTerminalChart;
-    global.OctoMarketChartBars = { barsFromPayload, toChartTime, isIntraday };
+    global.OctoMarketChartBars = { barsFromPayload, toChartTime, isIntraday, lineDataFromSeries };
 })(typeof window !== 'undefined' ? window : globalThis);
