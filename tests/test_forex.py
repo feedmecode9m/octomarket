@@ -13,7 +13,7 @@ from src.market.forex import (
     pip_value,
     units_to_lots,
 )
-from src.models.position import Position
+from src.models.position import Position, PositionUnit
 from src.trading.position_sizing import calculate_forex_size
 from src.trading.risk import account_risk_percent, max_loss, reward_ratio, validate_forex_risk
 from src.trading.trade_plan import TradePlanManager
@@ -134,7 +134,7 @@ class TestPositionModel(unittest.TestCase):
             "position_lots": 0.5,
         }
         pos = Position.from_trade_plan(plan)
-        self.assertEqual(pos.quantity_unit, "lots")
+        self.assertEqual(pos.quantity_unit, PositionUnit.LOTS)
         self.assertEqual(pos.quantity, 0.5)
         self.assertEqual(pos.instrument_id, "EURUSD")
 

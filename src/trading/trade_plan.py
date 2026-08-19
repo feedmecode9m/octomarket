@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from ..market.asset_class import AssetClass
 from ..market.forex import lot_to_units, pip_distance, pip_value
+from ..market.futures import calculate_futures_size, risk_amount as futures_risk_amount, tick_distance
 from ..market.instrument import resolve_instrument
 from .position_sizing import calculate_forex_size
 from .risk import account_risk_percent, reward_ratio
@@ -89,6 +90,9 @@ def normalize_plan_metrics(
     if instrument.asset_class == AssetClass.FOREX:
         return _apply_forex_metrics(plan, instrument.symbol, direction, entry, stop, target, account_balance, risk_percent)
 
+    if instrument.asset_class == AssetClass.FUTURES:
+        return _apply_futures_metrics(plan, instrument.instrument_id, direction, entry, stop, target, account_balance, risk_percent)
+
     quantity = int(plan.get("quantity") or 10)
     metrics = calculate_risk_reward(direction, entry, stop, target, quantity)
     plan.update(metrics)
@@ -141,6 +145,52 @@ def _apply_forex_metrics(
     return plan
 
 
+def _apply_futures_metrics(
+    plan: Dict[str, Any],
+    instrument_id: str,
+    direction: str,
+    entry: float,
+    stop: float,
+    target: float,
+    account_balance: Optional[float],
+    risk_percent: Optional[float],
+) -> Dict[str, Any]:
+    tick_risk = tick_distance(entry, stop, instrument_id)
+    reward_ticks = tick_distance(entry, target, instrument_id)
+
+    if account_balance and risk_percent:
+        sizing = calculate_futures_size(account_balance, risk_percent, entry, stop, instrument_id)
+        plan["contracts"] = sizing["contracts"]
+        plan["quantity"] = sizing["contracts"]
+        plan["risk_amount"] = sizing["risk_amount"]
+        plan["risk_percent"] = risk_percent
+        plan["margin_required"] = sizing["margin_required"]
+    elif plan.get("contracts") is not None:
+        contracts = int(plan["contracts"])
+        plan["quantity"] = contracts
+        plan["risk_amount"] = futures_risk_amount(entry, stop, contracts, instrument_id)
+    else:
+        contracts = int(plan.get("quantity") or 1)
+        plan["contracts"] = contracts
+        plan["risk_amount"] = futures_risk_amount(entry, stop, contracts, instrument_id)
+
+    plan["tick_risk"] = tick_risk
+    plan["reward_ticks"] = reward_ticks
+    plan["stop_distance"] = tick_risk
+    plan["stop_unit"] = "ticks"
+    plan["quantity_unit"] = "contracts"
+    plan["unit_type"] = "contracts"
+    plan["risk_reward"] = reward_ratio(1.0, reward_ticks / tick_risk) if tick_risk > 0 else 0
+    plan["dollar_risk"] = plan["risk_amount"]
+    plan["dollar_reward"] = round(
+        plan["risk_amount"] * plan["risk_reward"] if plan.get("risk_reward") else 0,
+        2,
+    )
+    if account_balance and plan.get("risk_amount"):
+        plan["account_risk_percent"] = account_risk_percent(plan["risk_amount"], account_balance)
+    return plan
+
+
 def validate_plan_levels(plan: Dict[str, Any]) -> None:
     """Validate entry/stop/target for direction."""
     asset_class = plan.get("asset_class", AssetClass.STOCK.value)
@@ -149,7 +199,7 @@ def validate_plan_levels(plan: Dict[str, Any]) -> None:
     stop = _price_from_level(plan.get("stop_loss"))
     target = _price_from_level(plan.get("target"))
 
-    if asset_class == AssetClass.FOREX.value:
+    if asset_class in (AssetClass.FOREX.value, AssetClass.FUTURES.value):
         if direction == "LONG":
             if stop >= entry:
                 raise ValueError("Stop loss must be below entry for LONG")
@@ -229,6 +279,8 @@ class TradePlanManager:
         }
         if data.get("position_lots") is not None:
             plan["position_lots"] = float(data["position_lots"])
+        if data.get("contracts") is not None:
+            plan["contracts"] = int(data["contracts"])
 
         normalize_plan_metrics(
             plan,
@@ -278,6 +330,8 @@ class TradePlanManager:
                 plan["setup"] = self._normalize_setup(data["setup"])
             if data.get("position_lots") is not None:
                 plan["position_lots"] = float(data["position_lots"])
+            if data.get("contracts") is not None:
+                plan["contracts"] = int(data["contracts"])
 
             normalize_plan_metrics(
                 plan,
@@ -333,8 +387,11 @@ class TradePlanManager:
                 "entry_source": plan["entry"].get("source"),
                 "risk_reward": plan.get("risk_reward"),
                 "position_lots": plan.get("position_lots"),
+                "contracts": plan.get("contracts"),
+                "tick_risk": plan.get("tick_risk"),
                 "pip_risk": plan.get("pip_risk"),
                 "risk_amount": plan.get("risk_amount"),
+                "unit_type": plan.get("unit_type") or plan.get("quantity_unit"),
                 "why_enter": plan["thesis"],
                 "setup_type": self._setup_summary(plan),
                 "invalidation": f"Stop at {plan['stop_loss']['price']}",

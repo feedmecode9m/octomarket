@@ -25,6 +25,10 @@ def max_loss(
         per_lot = pip_value(symbol, entry, lots=1.0, account_currency=account_currency)
         return round(pip_risk * per_lot * lots, 2)
 
+    if asset_class == AssetClass.FUTURES:
+        from ..market.futures import risk_amount as futures_risk
+        return futures_risk(entry, stop, int(size), symbol)
+
     points = abs(entry - stop)
     return round(points * size, 2)
 

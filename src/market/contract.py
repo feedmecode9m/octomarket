@@ -22,13 +22,7 @@ MONTH_CODES = {
 
 REVERSE_MONTH_CODES = {v: k for k, v in MONTH_CODES.items()}
 
-# Root symbol specs used in Phase 14A (expanded in 14C)
-FUTURES_SPECS: Dict[str, Dict[str, float]] = {
-    "ES": {"tick_size": 0.25, "tick_value": 12.50, "multiplier": 50},
-    "NQ": {"tick_size": 0.25, "tick_value": 5.00, "multiplier": 20},
-    "CL": {"tick_size": 0.01, "tick_value": 10.00, "multiplier": 1000},
-    "GC": {"tick_size": 0.10, "tick_value": 10.00, "multiplier": 100},
-}
+from .contract_specs import get_contract_spec
 
 CONTRACT_PATTERN = re.compile(r"^([A-Z]{1,4})([FGHJKMNQUVXZ])(\d{2})$")
 
@@ -43,6 +37,7 @@ class FuturesContract:
     tick_size: float
     tick_value: float
     multiplier: float
+    margin: float = 0.0
     exchange: str = "CME"
 
     @property
@@ -80,6 +75,7 @@ class FuturesContract:
             "tick_value": self.tick_value,
             "multiplier": self.multiplier,
             "point_value": self.point_value(),
+            "margin": self.margin,
         }
 
 
@@ -91,9 +87,7 @@ def parse_contract_code(code: str, exchange: str = "CME") -> FuturesContract:
         raise ValueError(f"Invalid futures contract code: {code}")
 
     root, month_code, year_suffix = match.group(1), match.group(2), int(match.group(3))
-    specs = FUTURES_SPECS.get(root)
-    if not specs:
-        raise ValueError(f"Unknown futures root symbol: {root}")
+    specs = get_contract_spec(root)
 
     return FuturesContract(
         root=root,
@@ -102,7 +96,8 @@ def parse_contract_code(code: str, exchange: str = "CME") -> FuturesContract:
         tick_size=specs["tick_size"],
         tick_value=specs["tick_value"],
         multiplier=specs["multiplier"],
-        exchange=exchange,
+        margin=specs.get("margin", 0),
+        exchange=specs.get("exchange", exchange),
     )
 
 
@@ -116,9 +111,7 @@ def build_contract(root: str, contract_month: str, exchange: str = "CME") -> Fut
     if not month_code:
         raise ValueError(f"Invalid contract month: {contract_month}")
 
-    specs = FUTURES_SPECS.get(root)
-    if not specs:
-        raise ValueError(f"Unknown futures root symbol: {root}")
+    specs = get_contract_spec(root)
 
     return FuturesContract(
         root=root,
@@ -127,5 +120,6 @@ def build_contract(root: str, contract_month: str, exchange: str = "CME") -> Fut
         tick_size=specs["tick_size"],
         tick_value=specs["tick_value"],
         multiplier=specs["multiplier"],
-        exchange=exchange,
+        margin=specs.get("margin", 0),
+        exchange=specs.get("exchange", exchange),
     )

@@ -1,10 +1,17 @@
 """Asset-aware position model."""
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, Optional
 
 from ..market.asset_class import AssetClass
 from ..market.instrument import resolve_instrument
+
+
+class PositionUnit(str, Enum):
+    SHARES = "SHARES"
+    LOTS = "LOTS"
+    CONTRACTS = "CONTRACTS"
 
 
 @dataclass
@@ -16,7 +23,7 @@ class Position:
     direction: str
     entry_price: float
     quantity: float
-    quantity_unit: str
+    quantity_unit: PositionUnit
     stop_price: Optional[float] = None
     target_price: Optional[float] = None
     symbol: Optional[str] = field(default=None)
@@ -24,8 +31,14 @@ class Position:
     def __post_init__(self):
         self.direction = self.direction.upper()
         self.instrument_id = self.instrument_id.upper()
+        if isinstance(self.quantity_unit, str):
+            self.quantity_unit = PositionUnit(self.quantity_unit.upper())
         if self.symbol is None:
             self.symbol = self.instrument_id
+
+    @property
+    def unit(self) -> PositionUnit:
+        return self.quantity_unit
 
     @classmethod
     def from_trade_plan(cls, plan: Dict[str, Any]) -> "Position":
@@ -39,13 +52,13 @@ class Position:
                 from ..market.forex import units_to_lots
                 lots = units_to_lots(int(plan["quantity"]))
             quantity = float(lots or 0)
-            unit = "lots"
+            unit = PositionUnit.LOTS
         elif asset_class == AssetClass.FUTURES:
             quantity = float(plan.get("contracts") or plan.get("quantity") or 0)
-            unit = "contracts"
+            unit = PositionUnit.CONTRACTS
         else:
             quantity = float(plan.get("quantity") or 0)
-            unit = "shares"
+            unit = PositionUnit.SHARES
 
         return cls(
             instrument_id=instrument.instrument_id,
@@ -67,7 +80,8 @@ class Position:
             "direction": self.direction,
             "entry_price": self.entry_price,
             "quantity": self.quantity,
-            "quantity_unit": self.quantity_unit,
+            "quantity_unit": self.quantity_unit.value,
+            "unit": self.quantity_unit.value,
             "stop_price": self.stop_price,
             "target_price": self.target_price,
         }
