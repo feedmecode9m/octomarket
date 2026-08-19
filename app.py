@@ -4,6 +4,7 @@ from src.api.ai_routes import ai_bp
 from src.api.simulation_routes import simulation_bp
 from src.api.strategy_lab_routes import strategy_lab_bp
 from src.api.mentor_routes import mentor_bp
+from src.api.terminal_routes import terminal_bp
 from src.utils.config import get_config
 import logging
 
@@ -31,6 +32,7 @@ def create_app():
         app.register_blueprint(simulation_bp)
         app.register_blueprint(strategy_lab_bp)
         app.register_blueprint(mentor_bp)
+        app.register_blueprint(terminal_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise
@@ -60,6 +62,15 @@ def create_app():
             return render_template('mentor.html')
         except Exception as e:
             logging.error(f"Error rendering mentor dashboard: {e}")
+            return render_template('500.html'), 500
+
+    @app.route('/terminal')
+    def trading_terminal():
+        """Live market practice terminal."""
+        try:
+            return render_template('terminal.html')
+        except Exception as e:
+            logging.error(f"Error rendering trading terminal: {e}")
             return render_template('500.html'), 500
     
     @app.errorhandler(404)

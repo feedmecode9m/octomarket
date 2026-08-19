@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Terminal — Paper Practice</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --accent-primary: #00d4ff; --accent-success: #00ff88; --accent-warning: #ffa502;
+            --accent-danger: #ff4757; --text-primary: #fff; --border-color: #333;
+        }
+        * { box-sizing: border-box; }
+        body { background: var(--bg-primary); color: var(--text-primary); font-family: 'Segoe UI', sans-serif; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .terminal-header { background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; }
+        .terminal-body { flex: 1; display: grid; grid-template-columns: 220px 1fr 280px; grid-template-rows: 1fr 200px; gap: 0; overflow: hidden; }
+        .panel { background: var(--bg-tertiary); border: 1px solid var(--border-color); overflow: auto; }
+        .panel-header { background: var(--bg-secondary); padding: 8px 12px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-primary); border-bottom: 1px solid var(--border-color); }
+        .watchlist-panel { grid-row: 1 / 3; }
+        .chart-panel { grid-column: 2; }
+        .mentor-panel { grid-column: 3; }
+        .bottom-panel { grid-column: 2 / 4; display: grid; grid-template-columns: 1fr 1fr; }
+        .watchlist-item { padding: 8px 12px; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; justify-content: space-between; }
+        .watchlist-item:hover, .watchlist-item.active { background: var(--bg-secondary); }
+        .watchlist-item .symbol { font-weight: 700; }
+        .bullish { color: var(--accent-success); }
+        .bearish { color: var(--accent-danger); }
+        .neutral { color: #888; }
+        .form-control, .form-select { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--border-color); font-size: 0.85rem; }
+        .btn-trade-buy { background: var(--accent-success); color: #000; border: none; font-weight: 700; }
+        .btn-trade-sell { background: var(--accent-danger); color: #fff; border: none; font-weight: 700; }
+        .btn-trade-hold { background: var(--accent-warning); color: #000; border: none; font-weight: 700; }
+        .session-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
+        .session-open { background: var(--accent-success); color: #000; }
+        .session-closed { background: var(--accent-danger); color: #fff; }
+        .session-idle { background: #555; }
+        .commentary-item { padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
+        .event-card { background: var(--bg-secondary); padding: 8px; margin-bottom: 6px; border-left: 3px solid var(--accent-warning); font-size: 0.8rem; }
+        .position-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem; border-bottom: 1px solid var(--border-color); }
+        #chartDiv { height: calc(100% - 40px); }
+        a { color: var(--accent-primary); text-decoration: none; }
+        .risk-high { color: var(--accent-danger); }
+        .risk-low { color: var(--accent-success); }
+    </style>
+</head>
+<body>
+    <div class="terminal-header">
+        <div>
+            <strong><i class="fas fa-terminal"></i> Paper Trading Terminal</strong>
+            <span class="session-badge session-idle ms-2" id="sessionBadge">IDLE</span>
+            <span class="text-muted ms-2" id="sessionProgress"></span>
+        </div>
+        <div>
+            <button class="btn btn-sm btn-outline-success me-1" id="startSessionBtn"><i class="fas fa-play"></i> Start</button>
+            <button class="btn btn-sm btn-outline-primary me-1" id="stepSessionBtn"><i class="fas fa-forward"></i> Step</button>
+            <button class="btn btn-sm btn-outline-warning me-1" id="pauseSessionBtn"><i class="fas fa-pause"></i> Pause</button>
+            <button class="btn btn-sm btn-outline-danger me-2" id="closeSessionBtn"><i class="fas fa-stop"></i> Close</button>
+            <a href="/" class="btn btn-sm btn-outline-light me-1">Dashboard</a>
+            <a href="/mentor" class="btn btn-sm btn-outline-warning me-1">Mentor</a>
+            <a href="/strategy-lab" class="btn btn-sm btn-outline-primary">Strategy Lab</a>
+        </div>
+    </div>
+
+    <div class="terminal-body">
+        <!-- Watchlist -->
+        <div class="panel watchlist-panel">
+            <div class="panel-header"><i class="fas fa-list"></i> Watchlist</div>
+            <div class="p-2">
+                <div class="input-group input-group-sm mb-2">
+                    <input type="text" class="form-control" id="addSymbolInput" placeholder="AAPL">
+                    <button class="btn btn-outline-primary btn-sm" id="addSymbolBtn">+</button>
+                </div>
+            </div>
+            <div id="watchlistItems"></div>
+        </div>
+
+        <!-- Chart -->
+        <div class="panel chart-panel">
+            <div class="panel-header"><i class="fas fa-chart-line"></i> Chart — <span id="chartSymbol">AAPL</span></div>
+            <div id="chartDiv"></div>
+        </div>
+
+        <!-- AI Mentor -->
+        <div class="panel mentor-panel">
+            <div class="panel-header"><i class="fas fa-robot"></i> AI Commentary</div>
+            <div class="p-2" id="commentaryPanel">
+                <p class="text-muted small">Start a session to receive live commentary.</p>
+            </div>
+            <div class="panel-header"><i class="fas fa-bolt"></i> Market Events</div>
+            <div class="p-2" id="eventsPanel"></div>
+            <div class="panel-header"><i class="fas fa-bell"></i> Alerts</div>
+            <div class="p-2">
+                <div class="input-group input-group-sm mb-1">
+                    <select class="form-select" id="alertType" style="max-width:80px">
+                        <option value="price">Price</option>
+                        <option value="indicator">RSI</option>
+                    </select>
+                    <input type="text" class="form-control" id="alertSymbol" placeholder="TSLA" style="max-width:70px">
+                    <select class="form-select" id="alertCondition" style="max-width:80px">
+                        <option value="drops">drops %</option>
+                        <option value="rises">rises %</option>
+                        <option value="below">below</option>
+                        <option value="above">above</option>
+                    </select>
+                    <input type="number" class="form-control" id="alertThreshold" value="5" style="max-width:60px">
+                    <button class="btn btn-outline-warning btn-sm" id="addAlertBtn">+</button>
+                </div>
+                <div id="alertsList" class="small"></div>
+            </div>
+        </div>
+
+        <!-- Bottom: Positions + Trade -->
+        <div class="panel bottom-panel">
+            <div class="p-2">
+                <div class="panel-header mb-2" style="border:none;padding:0"><i class="fas fa-briefcase"></i> Positions</div>
+                <div id="portfolioSummary" class="small mb-2">Cash: $10,000 | Value: $10,000 | Risk: —</div>
+                <div id="positionsList"></div>
+            </div>
+            <div class="p-2">
+                <div class="panel-header mb-2" style="border:none;padding:0"><i class="fas fa-exchange-alt"></i> Trade</div>
+                <div class="row g-2 mb-2">
+                    <div class="col-4"><input type="text" class="form-control form-control-sm" id="tradeSymbol" placeholder="Symbol"></div>
+                    <div class="col-4"><input type="number" class="form-control form-control-sm" id="tradeQty" placeholder="Qty" value="10"></div>
+                    <div class="col-4"><input type="text" class="form-control form-control-sm" id="tradeReason" placeholder="Reason"></div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-trade-buy btn-sm flex-fill" id="buyBtn">BUY</button>
+                    <button class="btn btn-trade-sell btn-sm flex-fill" id="sellBtn">SELL</button>
+                    <button class="btn btn-trade-hold btn-sm flex-fill" id="holdBtn">HOLD</button>
+                </div>
+                <div id="tradeResult" class="small mt-2 text-muted"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedSymbol = 'AAPL';
+        let sessionActive = false;
+
+        async function api(url, opts = {}) {
+            const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+            return resp.json();
+        }
+
+        function trendClass(trend) {
+            return trend === 'bullish' ? 'bullish' : trend === 'bearish' ? 'bearish' : 'neutral';
+        }
+
+        async function loadWatchlist() {
+            const items = await api('/api/watchlist');
+            const el = document.getElementById('watchlistItems');
+            if (!items.length) {
+                el.innerHTML = '<p class="text-muted small p-2">Add symbols to watchlist</p>';
+                return;
+            }
+            el.innerHTML = items.map(w => `
+                <div class="watchlist-item ${w.symbol === selectedSymbol ? 'active' : ''}" data-symbol="${w.symbol}">
+                    <div><span class="symbol">${w.symbol}</span><br><small class="text-muted">${w.sector}</small></div>
+                    <div class="text-end">
+                        <div>$${w.price.toFixed(2)}</div>
+                        <div class="${trendClass(w.trend)}">${w.change_percent >= 0 ? '+' : ''}${w.change_percent}%</div>
+                    </div>
+                </div>
+            `).join('');
+            el.querySelectorAll('.watchlist-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    selectedSymbol = item.dataset.symbol;
+                    document.getElementById('chartSymbol').textContent = selectedSymbol;
+                    document.getElementById('tradeSymbol').value = selectedSymbol;
+                    loadWatchlist();
+                    loadChart();
+                });
+            });
+        }
+
+        async function loadChart() {
+            const data = await api(`/api/session/chart/${selectedSymbol}`);
+            if (!data.prices || !data.prices.length) {
+                Plotly.newPlot('chartDiv', [{ x: [0], y: [0], type: 'scatter', line: { color: '#00d4ff' } }], {
+                    paper_bgcolor: '#2a2a2a', plot_bgcolor: '#1a1a1a', font: { color: '#fff' },
+                    xaxis: { gridcolor: '#333' }, yaxis: { gridcolor: '#333' }, margin: { t: 10, b: 30, l: 50, r: 10 }
+                }, { responsive: true, displayModeBar: false });
+                return;
+            }
+            Plotly.newPlot('chartDiv', [{
+                x: data.timestamps, y: data.prices, type: 'scatter', mode: 'lines',
+                line: { color: '#00d4ff', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(0,212,255,0.05)'
+            }], {
+                paper_bgcolor: '#2a2a2a', plot_bgcolor: '#1a1a1a', font: { color: '#fff' },
+                xaxis: { gridcolor: '#333', showgrid: true }, yaxis: { gridcolor: '#333', showgrid: true },
+                margin: { t: 10, b: 30, l: 50, r: 10 }
+            }, { responsive: true, displayModeBar: false });
+        }
+
+        async function loadCommentary() {
+            const data = await api('/api/commentary');
+            const el = document.getElementById('commentaryPanel');
+            let html = `<p class="small"><strong>${data.summary || ''}</strong></p>`;
+            (data.commentary || []).forEach(c => { html += `<div class="commentary-item">${c}</div>`; });
+            (data.warnings || []).forEach(w => { html += `<div class="commentary-item text-warning">${w}</div>`; });
+            (data.suggestions || []).forEach(s => { html += `<div class="commentary-item text-info">${s}</div>`; });
+            el.innerHTML = html;
+        }
+
+        async function loadEvents() {
+            const data = await api('/api/events');
+            const el = document.getElementById('eventsPanel');
+            if (!data.events || !data.events.length) {
+                el.innerHTML = '<p class="text-muted small">No events yet — step through the session.</p>';
+                return;
+            }
+            el.innerHTML = data.events.slice().reverse().map(e => `
+                <div class="event-card">
+                    <strong>${e.title}</strong> (${e.symbol})<br>
+                    ${e.what_happened}<br>
+                    <small class="text-warning">Risk: ${(e.risk_considerations || []).join(' ')}</small>
+                </div>
+            `).join('');
+        }
+
+        async function loadAlerts() {
+            const data = await api('/api/alerts');
+            const el = document.getElementById('alertsList');
+            const alerts = data.alerts || [];
+            if (!alerts.length) { el.innerHTML = '<span class="text-muted">No alerts set</span>'; return; }
+            el.innerHTML = alerts.map(a => `
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span>${a.symbol} ${a.condition} ${a.threshold} ${a.active ? '' : '(triggered)'}</span>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteAlert('${a.id}')">×</button>
+                </div>
+            `).join('');
+        }
+
+        async function deleteAlert(id) {
+            await api(`/api/alerts/${id}`, { method: 'DELETE' });
+            loadAlerts();
+        }
+
+        async function loadPortfolio() {
+            const data = await api('/api/terminal/portfolio');
+            const risk = data.risk_score || 0;
+            document.getElementById('portfolioSummary').innerHTML =
+                `Cash: $${(data.cash || 0).toLocaleString()} | Value: $${(data.total_value || 0).toLocaleString()} | ` +
+                `P/L: ${(data.total_return_pct || 0).toFixed(2)}% | Risk: <span class="${risk >= 70 ? 'risk-high' : 'risk-low'}">${risk}/100</span>`;
+
+            const positions = data.positions || {};
+            const el = document.getElementById('positionsList');
+            const keys = Object.keys(positions);
+            if (!keys.length) { el.innerHTML = '<span class="text-muted small">No open positions</span>'; return; }
+            el.innerHTML = keys.map(sym => {
+                const p = positions[sym];
+                const pnlClass = p.unrealized_pnl >= 0 ? 'bullish' : 'bearish';
+                return `<div class="position-row">
+                    <span><strong>${sym}</strong> × ${p.quantity} @ $${p.avg_cost.toFixed(2)}</span>
+                    <span class="${pnlClass}">$${p.unrealized_pnl.toFixed(2)}</span>
+                </div>`;
+            }).join('');
+        }
+
+        function updateSessionBadge(state) {
+            const badge = document.getElementById('sessionBadge');
+            const progress = document.getElementById('sessionProgress');
+            badge.textContent = (state || 'idle').toUpperCase();
+            badge.className = 'session-badge ms-2 ' +
+                (state === 'open' ? 'session-open' : state === 'closed' ? 'session-closed' : 'session-idle');
+        }
+
+        document.getElementById('addSymbolBtn').addEventListener('click', async () => {
+            const sym = document.getElementById('addSymbolInput').value.trim().toUpperCase();
+            if (!sym) return;
+            await api('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol: sym }) });
+            document.getElementById('addSymbolInput').value = '';
+            loadWatchlist();
+        });
+
+        document.getElementById('addAlertBtn').addEventListener('click', async () => {
+            const type = document.getElementById('alertType').value;
+            const symbol = document.getElementById('alertSymbol').value.trim().toUpperCase();
+            const condition = document.getElementById('alertCondition').value;
+            const threshold = parseFloat(document.getElementById('alertThreshold').value);
+            await api('/api/alerts', { method: 'POST', body: JSON.stringify({ symbol, type, condition, threshold }) });
+            loadAlerts();
+        });
+
+        document.getElementById('startSessionBtn').addEventListener('click', async () => {
+            const resp = await api('/api/session/start', { method: 'POST', body: JSON.stringify({ initial_cash: 10000 }) });
+            if (resp.error) { alert(resp.error); return; }
+            sessionActive = true;
+            updateSessionBadge(resp.state?.state);
+            document.getElementById('sessionProgress').textContent = `${resp.state?.progress_pct || 0}%`;
+            loadPortfolio();
+            loadCommentary();
+        });
+
+        document.getElementById('stepSessionBtn').addEventListener('click', async () => {
+            const resp = await api('/api/session/step', { method: 'POST' });
+            if (resp.error) { alert(resp.error); return; }
+            updateSessionBadge(resp.state);
+            document.getElementById('sessionProgress').textContent = `${resp.progress_pct || 0}%`;
+            if (resp.events) loadEvents();
+            loadWatchlist();
+            loadChart();
+            loadPortfolio();
+            loadCommentary();
+        });
+
+        document.getElementById('pauseSessionBtn').addEventListener('click', async () => {
+            await api('/api/session/pause', { method: 'POST' });
+            updateSessionBadge('paused');
+        });
+
+        document.getElementById('closeSessionBtn').addEventListener('click', async () => {
+            const resp = await api('/api/session/close', { method: 'POST' });
+            sessionActive = false;
+            updateSessionBadge('closed');
+            loadCommentary();
+        });
+
+        async function executeTrade(action) {
+            const symbol = document.getElementById('tradeSymbol').value.trim().toUpperCase() || selectedSymbol;
+            const quantity = parseInt(document.getElementById('tradeQty').value) || 0;
+            const reason = document.getElementById('tradeReason').value;
+            const resp = await api('/api/terminal/trade', {
+                method: 'POST',
+                body: JSON.stringify({ action, symbol, quantity, reason })
+            });
+            const el = document.getElementById('tradeResult');
+            if (resp.success === false || resp.error) {
+                el.textContent = resp.error || 'Trade failed';
+                el.className = 'small mt-2 text-danger';
+            } else {
+                el.textContent = `${action.toUpperCase()} ${symbol}${quantity ? ' × ' + quantity : ''} — ${resp.message || 'OK'}`;
+                el.className = 'small mt-2 text-success';
+                loadPortfolio();
+                loadCommentary();
+            }
+        }
+
+        document.getElementById('buyBtn').addEventListener('click', () => executeTrade('buy'));
+        document.getElementById('sellBtn').addEventListener('click', () => executeTrade('sell'));
+        document.getElementById('holdBtn').addEventListener('click', () => executeTrade('hold'));
+
+        // Init
+        loadWatchlist();
+        loadChart();
+        loadPortfolio();
+        loadCommentary();
+        loadAlerts();
+        loadEvents();
+        document.getElementById('tradeSymbol').value = selectedSymbol;
+    </script>
+</body>
+</html>
