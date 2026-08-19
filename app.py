@@ -2,6 +2,7 @@ from flask import Flask, render_template, request
 from src.api.routes import api_bp
 from src.api.ai_routes import ai_bp
 from src.api.simulation_routes import simulation_bp
+from src.api.strategy_lab_routes import strategy_lab_bp
 from src.utils.config import get_config
 import logging
 
@@ -27,6 +28,7 @@ def create_app():
         app.register_blueprint(api_bp)
         app.register_blueprint(ai_bp)
         app.register_blueprint(simulation_bp)
+        app.register_blueprint(strategy_lab_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise
@@ -38,6 +40,15 @@ def create_app():
             return render_template('index.html')
         except Exception as e:
             logging.error(f"Error rendering index template: {e}")
+            return render_template('500.html'), 500
+
+    @app.route('/strategy-lab')
+    def strategy_lab():
+        """Strategy Lab page."""
+        try:
+            return render_template('strategy_lab.html')
+        except Exception as e:
+            logging.error(f"Error rendering strategy lab: {e}")
             return render_template('500.html'), 500
     
     @app.errorhandler(404)

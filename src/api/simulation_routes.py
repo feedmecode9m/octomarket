@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 from ..analytics.performance import TradingPerformanceAnalytics
 from ..core.data_fetcher import DataFetcher
 from ..learning.challenges import get_all_challenges, get_challenge_tracker
+from ..learning.skill_score import SkillScoreCalculator
 from ..models.state import get_simulator_state
 from ..simulation.market_replay import get_replay_engine
 from ..simulation.paper_portfolio import get_paper_portfolio
@@ -22,6 +23,8 @@ _simulator_state = get_simulator_state()
 
 _portfolio_value_history: list = []
 _benchmark_price: float = 0.0
+_last_backtest_cache: dict = {}
+_skill_calc = SkillScoreCalculator()
 
 
 def _record_portfolio_snapshot(prices: dict):
@@ -252,3 +255,22 @@ def journal_timeline():
 
     entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
     return jsonify({"timeline": entries})
+
+
+@simulation_bp.route("/skill-score", methods=["GET"])
+def get_skill_score():
+    """Trading skill rating 0-100."""
+    perf = get_performance().get_json()
+    result = _skill_calc.calculate(
+        performance=perf,
+        backtest_results=_last_backtest_cache,
+        challenge_progress=get_all_challenges(),
+        trade_history=_simulator_state.trades_list,
+    )
+    return jsonify(result)
+
+
+def set_last_backtest_result(result: dict):
+    """Allow strategy lab to share backtest results for skill scoring."""
+    global _last_backtest_cache
+    _last_backtest_cache = result
