@@ -1,0 +1,127 @@
+/* OctoMarket Design System — professional financial terminal */
+
+:root {
+    --om-bg-primary: #0a0e14;
+    --om-bg-secondary: #121820;
+    --om-bg-tertiary: #1a2230;
+    --om-bg-elevated: #222c3c;
+    --om-accent: #00b4d8;
+    --om-accent-muted: #0096b8;
+    --om-success: #00c896;
+    --om-danger: #e84545;
+    --om-warning: #f0a500;
+    --om-text: #e8edf4;
+    --om-text-muted: #8899aa;
+    --om-border: #2a3544;
+    --om-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --om-radius: 6px;
+    --om-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.om-body {
+    background: var(--om-bg-primary);
+    color: var(--om-text);
+    font-family: var(--om-font);
+    min-height: 100vh;
+}
+
+.om-nav {
+    background: var(--om-bg-secondary);
+    border-bottom: 1px solid var(--om-border);
+    padding: 0 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+}
+
+.om-nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: var(--om-text);
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.02em;
+}
+
+.om-nav-brand img { height: 28px; width: 28px; }
+
+.om-nav-brand span.tagline {
+    font-weight: 400;
+    font-size: 0.7rem;
+    color: var(--om-text-muted);
+    margin-left: 0.5rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.om-nav-links {
+    display: flex;
+    gap: 0.25rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.om-nav-links a {
+    color: var(--om-text-muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: var(--om-radius);
+    transition: color 0.15s, background 0.15s;
+}
+
+.om-nav-links a:hover,
+.om-nav-links a.active {
+    color: var(--om-accent);
+    background: rgba(0, 180, 216, 0.08);
+}
+
+.om-card {
+    background: var(--om-bg-tertiary);
+    border: 1px solid var(--om-border);
+    border-radius: var(--om-radius);
+    padding: 1.5rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.om-card:hover {
+    border-color: var(--om-accent-muted);
+    box-shadow: var(--om-shadow);
+}
+
+.om-card h3 { color: var(--om-accent); font-size: 1.1rem; margin-bottom: 0.5rem; }
+.om-card p { color: var(--om-text-muted); font-size: 0.85rem; margin-bottom: 1rem; }
+
+.om-btn {
+    display: inline-block;
+    background: var(--om-accent);
+    color: #000;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--om-radius);
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+}
+
+.om-btn:hover { background: var(--om-accent-muted); color: #fff; }
+
+.om-stat-bar {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.75rem;
+    color: var(--om-text-muted);
+}
+
+.om-stat-bar strong { color: var(--om-text); margin-left: 0.25rem; }
+
+.om-version {
+    font-size: 0.65rem;
+    color: var(--om-text-muted);
+    opacity: 0.7;
+}
