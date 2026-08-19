@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategy Lab — AI Trading Learning Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --accent-primary: #00d4ff;
+            --accent-success: #00ff88;
+            --accent-warning: #ffa502;
+            --accent-danger: #ff4757;
+            --text-primary: #ffffff;
+            --border-color: #333333;
+        }
+        body { background: var(--bg-primary); color: var(--text-primary); font-family: 'Segoe UI', sans-serif; }
+        .lab-container { background: var(--bg-secondary); border: 2px solid var(--border-color); margin: 20px; padding: 30px; }
+        .lab-panel { background: var(--bg-tertiary); border: 1px solid var(--border-color); padding: 20px; margin-bottom: 20px; }
+        .lab-panel h5 { color: var(--accent-primary); text-transform: uppercase; letter-spacing: 1px; }
+        .result-card { background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 15px; margin-bottom: 10px; }
+        .skill-badge { font-size: 2rem; color: var(--accent-success); font-weight: 800; }
+        .form-control, .form-select { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--border-color); }
+        .btn-primary { background: var(--accent-primary); border: none; color: #000; font-weight: 600; }
+        .btn-success { background: var(--accent-success); border: none; color: #000; }
+        a { color: var(--accent-primary); }
+    </style>
+</head>
+<body>
+    <div class="lab-container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="fas fa-flask"></i> Strategy Lab</h1>
+            <a href="/" class="btn btn-outline-light btn-sm"><i class="fas fa-arrow-left"></i> Dashboard</a>
+        </div>
+        <p class="text-muted">Create, backtest, and compare trading strategies — paper money only.</p>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="lab-panel">
+                    <h5><i class="fas fa-pen"></i> Create Strategy</h5>
+                    <div class="mb-2">
+                        <label class="form-label">Strategy Name</label>
+                        <input type="text" class="form-control" id="strategyName" value="My Strategy">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Describe your strategy</label>
+                        <textarea class="form-control" id="strategyDescription" rows="3"
+                            placeholder="Buy when the 20 day moving average crosses above the 50 day moving average"></textarea>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-6">
+                            <label class="form-label">Symbol</label>
+                            <input type="text" class="form-control" id="labSymbol" value="AAPL">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Period</label>
+                            <select class="form-select" id="labPeriod">
+                                <option value="1mo">1 Month</option>
+                                <option value="3mo">3 Months</option>
+                                <option value="6mo">6 Months</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary me-2" id="parseBtn"><i class="fas fa-code"></i> Parse Rules</button>
+                    <button class="btn btn-success" id="backtestBtn"><i class="fas fa-play"></i> Run Backtest</button>
+                </div>
+
+                <div class="lab-panel">
+                    <h5><i class="fas fa-book"></i> Strategy Library</h5>
+                    <div id="libraryList">Loading...</div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="lab-panel">
+                    <h5><i class="fas fa-chart-bar"></i> Parsed Rules</h5>
+                    <pre id="parsedRules" style="color: var(--accent-success); font-size: 0.85rem;">Rules will appear here after parsing.</pre>
+                </div>
+
+                <div class="lab-panel">
+                    <h5><i class="fas fa-trophy"></i> Backtest Results</h5>
+                    <div id="backtestResults"><p class="text-muted">Run a backtest to see results.</p></div>
+                </div>
+
+                <div class="lab-panel">
+                    <h5><i class="fas fa-robot"></i> AI Strategy Coach</h5>
+                    <div id="coachFeedback"><p class="text-muted">Backtest a strategy, then ask the coach.</p></div>
+                    <button class="btn btn-outline-info btn-sm mt-2" id="coachReviewBtn" disabled>
+                        <i class="fas fa-comment"></i> Get AI Feedback
+                    </button>
+                </div>
+
+                <div class="lab-panel text-center">
+                    <h5><i class="fas fa-star"></i> Skill Rating</h5>
+                    <div class="skill-badge" id="skillScore">—</div>
+                    <p id="skillLevel" class="text-muted">Complete a backtest to update</p>
+                    <div id="skillComponents" class="text-start mt-2" style="font-size: 0.9rem;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lab-panel">
+            <h5><i class="fas fa-balance-scale"></i> Strategy Comparison</h5>
+            <button class="btn btn-warning btn-sm mb-2" id="compareBtn">Compare Library Strategies vs Buy &amp; Hold</button>
+            <div id="compareResults"></div>
+        </div>
+    </div>
+
+    <script>
+        let lastStrategy = null;
+        let lastBacktest = null;
+
+        async function loadLibrary() {
+            const resp = await fetch('/api/strategy/library');
+            const data = await resp.json();
+            const el = document.getElementById('libraryList');
+            el.innerHTML = '';
+            (data.strategies || []).forEach(function(s) {
+                const div = document.createElement('div');
+                div.className = 'result-card';
+                div.innerHTML = '<strong>' + s.name + '</strong> <span class="badge bg-secondary">' + s.difficulty + '</span>' +
+                    '<p class="mb-1 small">' + s.description + '</p>' +
+                    '<button class="btn btn-outline-primary btn-sm load-template" data-id="' + s.id + '">Load &amp; Backtest</button>';
+                el.appendChild(div);
+            });
+            document.querySelectorAll('.load-template').forEach(function(btn) {
+                btn.addEventListener('click', async function() {
+                    const id = this.dataset.id;
+                    const resp = await fetch('/api/strategy/library/' + id);
+                    lastStrategy = await resp.json();
+                    document.getElementById('strategyName').value = lastStrategy.name;
+                    document.getElementById('parsedRules').textContent = JSON.stringify(lastStrategy, null, 2);
+                    runBacktest(lastStrategy);
+                });
+            });
+        }
+
+        async function parseStrategy() {
+            const description = document.getElementById('strategyDescription').value;
+            const name = document.getElementById('strategyName').value;
+            const resp = await fetch('/api/strategy/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ description, name }),
+            });
+            const data = await resp.json();
+            if (data.error) { alert(data.error); return; }
+            lastStrategy = data;
+            document.getElementById('parsedRules').textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function runBacktest(strategy) {
+            strategy = strategy || lastStrategy;
+            if (!strategy) { alert('Parse or load a strategy first'); return; }
+
+            const resp = await fetch('/api/strategy/backtest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    strategy,
+                    symbol: document.getElementById('labSymbol').value,
+                    period: document.getElementById('labPeriod').value,
+                }),
+            });
+            const data = await resp.json();
+            if (data.error) { alert(data.error); return; }
+
+            lastBacktest = data;
+            document.getElementById('coachReviewBtn').disabled = false;
+
+            const bc = data.benchmark_comparison || {};
+            document.getElementById('backtestResults').innerHTML =
+                '<div class="result-card">' +
+                '<strong>Return:</strong> ' + data.total_return_pct + '% | ' +
+                '<strong>Win Rate:</strong> ' + data.win_rate + '% | ' +
+                '<strong>Drawdown:</strong> ' + data.max_drawdown + '% | ' +
+                '<strong>Sharpe:</strong> ' + data.sharpe_ratio + '<br>' +
+                '<strong>Trades:</strong> ' + data.total_trades + ' | ' +
+                '<strong>vs B&amp;H:</strong> ' + (bc.beat_benchmark ? '✅ Beat' : '❌ Lag') +
+                ' (alpha: ' + (bc.alpha || 0) + '%)' +
+                '</div>';
+
+            updateSkillScore();
+        }
+
+        async function getCoachFeedback() {
+            if (!lastStrategy || !lastBacktest) return;
+            const resp = await fetch('/api/ai/review-strategy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategy: lastStrategy, backtest_results: lastBacktest }),
+            });
+            const data = await resp.json();
+            document.getElementById('coachFeedback').innerHTML =
+                '<p><strong>Difficulty:</strong> ' + data.difficulty_level + '</p>' +
+                '<p><strong>Strengths:</strong></p><ul>' + data.strengths.map(function(s) { return '<li>' + s + '</li>'; }).join('') + '</ul>' +
+                '<p><strong>Weaknesses:</strong></p><ul>' + data.weaknesses.map(function(s) { return '<li>' + s + '</li>'; }).join('') + '</ul>' +
+                '<p><strong>Suggestions:</strong></p><ul>' + data.improvement_suggestions.map(function(s) { return '<li>' + s + '</li>'; }).join('') + '</ul>';
+        }
+
+        async function updateSkillScore() {
+            const resp = await fetch('/api/skill-score');
+            const data = await resp.json();
+            document.getElementById('skillScore').textContent = data.score;
+            document.getElementById('skillLevel').textContent = data.level;
+            const comp = data.components || {};
+            document.getElementById('skillComponents').innerHTML =
+                'Risk: ' + comp.risk_management + ' | Consistency: ' + comp.consistency +
+                ' | Strategy: ' + comp.strategy_quality + ' | Discipline: ' + comp.emotional_discipline;
+        }
+
+        async function compareStrategies() {
+            const libResp = await fetch('/api/strategy/library');
+            const lib = await libResp.json();
+            const strategies = [];
+            for (const s of (lib.strategies || []).slice(0, 3)) {
+                const r = await fetch('/api/strategy/library/' + s.id);
+                strategies.push(await r.json());
+            }
+            const resp = await fetch('/api/strategy/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    strategies,
+                    symbol: document.getElementById('labSymbol').value,
+                    period: document.getElementById('labPeriod').value,
+                }),
+            });
+            const data = await resp.json();
+            let html = '<p><strong>Best:</strong> ' + data.best_performer + '</p><ul>';
+            (data.rankings || []).forEach(function(r) {
+                html += '<li>#' + r.rank + ' ' + r.name + ' — ' + r.total_return_pct + '% (DD: ' + r.max_drawdown + '%)</li>';
+            });
+            html += '</ul>';
+            if (data.weaknesses && data.weaknesses.length) {
+                html += '<p><strong>Weaknesses:</strong></p><ul>' +
+                    data.weaknesses.map(function(w) { return '<li>' + w + '</li>'; }).join('') + '</ul>';
+            }
+            document.getElementById('compareResults').innerHTML = html;
+        }
+
+        document.getElementById('parseBtn').addEventListener('click', parseStrategy);
+        document.getElementById('backtestBtn').addEventListener('click', function() { runBacktest(); });
+        document.getElementById('coachReviewBtn').addEventListener('click', getCoachFeedback);
+        document.getElementById('compareBtn').addEventListener('click', compareStrategies);
+        loadLibrary();
+        updateSkillScore();
+    </script>
+</body>
+</html>
