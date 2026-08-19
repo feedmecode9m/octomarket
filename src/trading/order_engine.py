@@ -5,6 +5,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from .bracket import create_bracket_exits
+
 ORDER_STATUSES = ("CREATED", "PENDING", "TRIGGERED", "FILLED", "CANCELLED", "REJECTED")
 ORDER_TYPES = ("market", "limit", "stop_market", "stop_limit")
 SIDES = ("buy", "sell")

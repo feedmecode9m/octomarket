@@ -23,6 +23,8 @@ class TradeJournal:
         exit_price: Optional[float] = None,
         lesson_learned: Optional[str] = None,
         strategy: Optional[str] = None,
+        trade_plan: Optional[Dict[str, Any]] = None,
+        order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Record a new journal entry."""
         entry = {
@@ -36,6 +38,12 @@ class TradeJournal:
             "reason": reason,
             "lesson_learned": lesson_learned,
             "strategy": strategy,
+            "order_id": order_id,
+            "trade_plan": trade_plan or {},
+            "execution_review": None,
+            "opened_at": datetime.now().isoformat(),
+            "closed_at": None,
+            "duration": None,
             "result": self._calculate_result(trade_type, entry_price, exit_price, quantity),
             "status": "closed" if exit_price is not None else "open",
         }
@@ -52,13 +60,87 @@ class TradeJournal:
                 if entry["id"] == entry_id:
                     entry["exit_price"] = float(exit_price)
                     entry["status"] = "closed"
+                    entry["closed_at"] = datetime.now().isoformat()
+                    if entry.get("opened_at"):
+                        pass
                     entry["result"] = self._calculate_result(
                         entry["type"], entry["entry_price"], exit_price, entry["quantity"]
                     )
+                    if entry.get("timestamp") and not entry.get("opened_at"):
+                        entry["opened_at"] = entry["timestamp"]
                     if lesson_learned:
                         entry["lesson_learned"] = lesson_learned
+                    entry["duration"] = self._calc_duration(entry.get("opened_at") or entry["timestamp"], entry["closed_at"])
                     return entry.copy()
         return None
+
+    def record_execution(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        quantity: int,
+        order_id: str,
+        trade_plan: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Record an entry from the execution engine with trade plan."""
+        plan = trade_plan or {}
+        return self.record(
+            symbol=symbol,
+            trade_type=side,
+            entry_price=entry_price,
+            quantity=quantity,
+            reason=plan.get("why_enter", "Order filled"),
+            strategy=plan.get("setup"),
+            trade_plan={
+                "why_enter": plan.get("why_enter", ""),
+                "setup": plan.get("setup", ""),
+                "expected_move": plan.get("expected_move", ""),
+                "invalidation": plan.get("invalidation", plan.get("stop_loss", "")),
+            },
+            order_id=order_id,
+        )
+
+    def add_execution_review(
+        self,
+        entry_id: str,
+        review: Dict[str, Any],
+        exit_price: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Add post-exit execution review."""
+        with self._lock:
+            for entry in self._entries:
+                if entry["id"] == entry_id:
+                    entry["execution_review"] = {
+                        "entry_good": review.get("entry_good"),
+                        "risk_controlled": review.get("risk_controlled"),
+                        "exit_disciplined": review.get("exit_disciplined"),
+                        "notes": review.get("notes", ""),
+                    }
+                    if exit_price is not None:
+                        entry["exit_price"] = float(exit_price)
+                        entry["status"] = "closed"
+                        entry["closed_at"] = datetime.now().isoformat()
+                        entry["result"] = self._calculate_result(
+                            entry["type"], entry["entry_price"], exit_price, entry["quantity"]
+                        )
+                        entry["duration"] = self._calc_duration(
+                            entry.get("opened_at") or entry["timestamp"], entry["closed_at"]
+                        )
+                    return entry.copy()
+        return None
+
+    def close_by_order_id(self, order_id: str, exit_price: float) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            for entry in self._entries:
+                if entry.get("order_id") == order_id and entry["status"] == "open":
+                    return self.update_exit(entry["id"], exit_price)
+        return None
+
+    def get_history(self) -> List[Dict[str, Any]]:
+        """Closed trades with duration and P/L for history tab."""
+        closed = [e for e in self.get_all() if e["status"] == "closed"]
+        return sorted(closed, key=lambda x: x.get("closed_at") or x["timestamp"], reverse=True)
 
     def get_all(self) -> List[Dict[str, Any]]:
         with self._lock:
@@ -171,6 +253,22 @@ class TradeJournal:
         if trade_type == "buy":
             return f"Buy signal triggered by {strategy} — short MA crossed above long MA with confirming RSI/momentum."
         return f"Sell signal triggered by {strategy} — death cross, profit target, or stop loss hit."
+
+    def _calc_duration(self, opened_at: str, closed_at: str) -> str:
+        try:
+            start = datetime.fromisoformat(opened_at)
+            end = datetime.fromisoformat(closed_at)
+            delta = end - start
+            hours, rem = divmod(int(delta.total_seconds()), 3600)
+            minutes = rem // 60
+            if hours > 24:
+                days = hours // 24
+                return f"{days}d {hours % 24}h"
+            if hours > 0:
+                return f"{hours}h {minutes}m"
+            return f"{minutes}m"
+        except (ValueError, TypeError):
+            return "—"
 
 
 # Global journal instance
