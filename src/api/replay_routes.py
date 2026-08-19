@@ -143,6 +143,15 @@ def replay_compare():
     })
 
 
+@replay_bp.route("/records/<plan_id>", methods=["GET"])
+def replay_record_by_plan(plan_id):
+    """Return durable replay record for a trade plan (decision snapshot + outcome + scoring)."""
+    record = _memory.get_by_plan_id(plan_id)
+    if not record:
+        return jsonify({"error": "Replay record not found"}), 404
+    return jsonify({"record": record})
+
+
 @replay_bp.route("/score", methods=["POST"])
 def replay_score():
     """Compute deterministic quality score for a replay record."""

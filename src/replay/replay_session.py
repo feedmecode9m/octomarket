@@ -62,8 +62,12 @@ class ReplaySessionManager:
         with self._lock:
             if reset_portfolio:
                 from ..simulation.paper_portfolio import get_paper_portfolio
+                from ..trading.order_engine import get_order_engine
+                from ..ai_agent.trade_journal import get_trade_journal
 
                 get_paper_portfolio().reset(initial_cash)
+                get_order_engine().clear()
+                get_trade_journal().clear()
 
             self._session.start(
                 [instrument.instrument_id],

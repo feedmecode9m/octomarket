@@ -9,12 +9,13 @@ from ..market.alerts import get_alert_manager
 from ..market.watchlist import get_watchlist
 from ..simulation.events import get_event_engine
 from ..simulation.paper_portfolio import get_paper_portfolio
+from ..replay.replay_session import get_replay_session
 from ..simulation.session import get_market_session
-from ..api.execution_routes import process_session_fills
 
 terminal_bp = Blueprint("terminal", __name__, url_prefix="/api")
 
 _watchlist = get_watchlist()
+_replay = get_replay_session()
 _session = get_market_session()
 _portfolio = get_paper_portfolio()
 _alerts = get_alert_manager()
@@ -82,46 +83,62 @@ def remove_from_watchlist(symbol):
     return jsonify({"message": f"{symbol} removed"})
 
 
-# --- Market Session ---
+def _merge_terminal_state(replay_state: dict) -> dict:
+    """Merge canonical replay state with underlying session fields for terminal clients."""
+    session_state = _session.get_state()
+    prices = session_state.get("prices") or replay_state.get("prices") or {}
+    merged = {**session_state, **replay_state}
+    merged["state"] = session_state.get("state", "idle")
+    merged["replay_mode"] = replay_state.get("mode") == "replay"
+    merged["portfolio"] = _portfolio.to_dict(prices)
+    return merged
+
+
+# --- Market Session (terminal → canonical ReplaySessionManager) ---
 
 @terminal_bp.route("/session/start", methods=["POST"])
 def start_session():
     data = request.get_json(silent=True) or {}
-    symbols = data.get("symbols") or _watchlist.get_symbols()
-    if not symbols:
-        symbols = ["AAPL"]
+    instrument_id = data.get("instrument_id")
+    symbols = data.get("symbols")
+    if not instrument_id and symbols:
+        instrument_id = symbols[0]
+    if not instrument_id:
+        symbols = _watchlist.get_symbols()
+        instrument_id = symbols[0] if symbols else "AAPL"
 
     initial_cash = float(data.get("initial_cash", 10000))
-    period = data.get("period", "5d")
+    period = data.get("period", "1mo")
     interval = data.get("interval", "1d")
 
     try:
-        _portfolio.reset(initial_cash)
-        _events.clear()
-        from ..trading.order_engine import get_order_engine
-        from ..ai_agent.trade_journal import get_trade_journal
-        get_order_engine().clear()
-        get_trade_journal().clear()
-        state = _session.start(symbols, initial_cash, period, interval)
-        return jsonify({"message": "Session started", "state": state})
+        state = _replay.start(
+            instrument_id=instrument_id,
+            period=period,
+            interval=interval,
+            initial_cash=initial_cash,
+            reset_portfolio=True,
+        )
+        return jsonify({"message": "Replay started", "state": _merge_terminal_state(state)})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
 
 @terminal_bp.route("/session/step", methods=["POST"])
 def step_session():
-    state = _session.step()
-    if "error" in state:
-        return jsonify(state), 400
+    state = _replay.step()
+    if state.get("error"):
+        return jsonify(_merge_terminal_state(state)), 400
 
+    session_state = _session.get_state()
     triggered = []
-    candles = state.get("candles", {})
+    candles = session_state.get("candles", {})
     if candles:
-        fill_results = process_session_fills(candles)
+        fill_results = state.get("fills") or []
         state["fills"] = fill_results
 
-    for symbol, price in state.get("prices", {}).items():
-        prev = state.get("prev_closes", {}).get(symbol, price)
+    for symbol, price in session_state.get("prices", {}).items():
+        prev = session_state.get("prev_closes", {}).get(symbol, price)
         _watchlist.update_price(symbol, price, prev)
         triggered.extend(_alerts.check_price_alerts(symbol, price, prev))
 
@@ -130,43 +147,46 @@ def step_session():
             rsi = _compute_rsi(pd.Series(chart["prices"]))
             triggered.extend(_alerts.check_indicator_alerts(symbol, rsi))
 
-        event = _events.maybe_generate(symbol, state.get("current_index", 0))
+        event = _events.maybe_generate(symbol, session_state.get("current_index", 0))
         if event:
             state.setdefault("events", []).append(event)
 
-    portfolio = _portfolio.to_dict(state.get("prices", {}))
+    portfolio = _portfolio.to_dict(session_state.get("prices", {}))
     risk_event = _alerts.check_portfolio_risk(portfolio.get("risk_score", 0))
     if risk_event:
         triggered.append(risk_event)
 
-    state["alerts_triggered"] = triggered
-    state["portfolio"] = portfolio
-    return jsonify(state)
+    merged = _merge_terminal_state(state)
+    merged["alerts_triggered"] = triggered
+    merged["portfolio"] = portfolio
+    return jsonify(merged)
 
 
 @terminal_bp.route("/session/pause", methods=["POST"])
 def pause_session():
-    _session.pause()
-    return jsonify(_session.get_state())
+    state = _replay.pause()
+    return jsonify(_merge_terminal_state(state))
 
 
 @terminal_bp.route("/session/resume", methods=["POST"])
 def resume_session():
-    _session.resume()
-    return jsonify(_session.get_state())
+    state = _replay.resume()
+    return jsonify(_merge_terminal_state(state))
 
 
 @terminal_bp.route("/session/close", methods=["POST"])
 def close_session():
-    _session.close()
-    return jsonify({"message": "Session closed", "state": _session.get_state()})
+    _replay.reset()
+    return jsonify({
+        "message": "Session closed",
+        "state": _merge_terminal_state(_replay.get_state()),
+    })
 
 
 @terminal_bp.route("/session/state", methods=["GET"])
 def session_state():
-    state = _session.get_state()
-    state["portfolio"] = _portfolio.to_dict(state.get("prices", {}))
-    return jsonify(state)
+    state = _replay.get_state()
+    return jsonify(_merge_terminal_state(state))
 
 
 @terminal_bp.route("/session/chart/<symbol>", methods=["GET"])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from .replay_record import (
@@ -86,6 +87,34 @@ class ReplayMemory:
             return None
         return self.score_record(record["id"])
 
+    def on_manual_close(
+        self,
+        symbol: str,
+        exit_price: float,
+        *,
+        quantity: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Finalize a replay record when a position is closed outside bracket exits."""
+        record = self._find_open_record_for_symbol(symbol)
+        if not record or record.get("status") != "filled":
+            return None
+
+        entry = (record.get("execution") or {}).get("entry") or {}
+        qty = float(quantity or entry.get("quantity") or 0)
+        synthetic_order = {
+            "id": f"manual-close-{record['id'][:8]}",
+            "parent_id": entry.get("order_id") or record.get("execution", {}).get("order_id"),
+            "side": "sell",
+            "filled_at": datetime.now().isoformat(),
+        }
+        fill = {"fill_price": exit_price, "quantity": qty}
+        if not synthetic_order["parent_id"]:
+            updated = apply_exit_fill(record, synthetic_order, fill, exit_reason="manual_close")
+            saved = self._store.save(updated)
+            self._mark_plan_completed(saved.get("plan_id"))
+            return saved
+        return self.on_exit_fill(synthetic_order, fill, exit_reason="manual_close")
+
     def reset(self) -> None:
         with self._lock:
             self._by_plan.clear()
@@ -126,6 +155,23 @@ class ReplayMemory:
                 return record
             entry = execution.get("entry") or {}
             if entry.get("order_id") == order_id:
+                return record
+        return None
+
+    def _find_open_record_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        key = (symbol or "").upper()
+        for record in self._store.list_all():
+            if record.get("status") != "filled":
+                continue
+            market = record.get("market") or {}
+            plan = record.get("trade_intent") or {}
+            candidates = {
+                market.get("instrument_id", "").upper(),
+                market.get("symbol", "").upper(),
+                plan.get("instrument_id", "").upper(),
+                plan.get("symbol", "").upper(),
+            }
+            if key in candidates:
                 return record
         return None
 

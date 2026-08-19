@@ -16,6 +16,18 @@ _drawings = get_drawing_store()
 
 def _workspace_with_drawings() -> dict:
     state = _state.get_state()
+    from ..replay.replay_session import get_replay_session
+
+    replay = get_replay_session().get_state()
+    state["replay"] = {
+        "mode": replay.get("mode"),
+        "status": replay.get("status"),
+        "progress_pct": replay.get("progress_pct"),
+        "hidden_candles": replay.get("hidden_candles"),
+        "current_index": replay.get("current_index"),
+        "total_candles": replay.get("total_candles"),
+        "session_capped": replay.get("mode") == "replay" and replay.get("status") != "idle",
+    }
     state["drawings"] = _drawings.list_drawings(state["symbol"])
     return state
 

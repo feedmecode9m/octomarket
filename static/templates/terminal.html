@@ -44,6 +44,9 @@
         .session-open { background: var(--accent-success); color: #000; }
         .session-closed { background: var(--accent-danger); }
         .session-idle { background: #555; }
+        .session-replay { background: #7c4dff; color: #fff; }
+        .session-live { background: #444; color: #ccc; }
+        .replay-review-panel { background: rgba(124, 77, 255, 0.08); border: 1px solid rgba(124, 77, 255, 0.35); border-radius: 4px; padding: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; display: none; }
         .chart-panel { display: flex; flex-direction: column; min-height: 0; }
         .chart-toolbar {
             display: flex; align-items: center; gap: 10px; padding: 4px 10px;
@@ -105,13 +108,14 @@
                 <span>Equity: <strong id="statEquity">$10,000</strong></span>
                 <span>Risk: <strong id="statRisk">—</strong></span>
             </div>
-            <span class="session-badge session-idle ms-0 mt-1 d-inline-block" id="sessionBadge">IDLE</span>
+            <span class="session-badge session-live ms-0 mt-1 d-inline-block" id="modeBadge">LIVE</span>
+            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="sessionBadge">IDLE</span>
             <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="marketSessionBadge">NYSE</span>
             <span class="text-muted ms-2" id="sessionProgress"></span>
             <span class="hotkey-hint ms-2">B=Buy S=Sell X=Close ESC=Cancel</span>
         </div>
         <div>
-            <button class="btn btn-sm btn-outline-success me-1" id="startSessionBtn"><i class="fas fa-play"></i> Start</button>
+            <button class="btn btn-sm btn-outline-success me-1" id="startSessionBtn"><i class="fas fa-play"></i> Start Replay</button>
             <button class="btn btn-sm btn-outline-primary me-1" id="stepSessionBtn"><i class="fas fa-forward"></i> Step</button>
             <button class="btn btn-sm btn-outline-warning me-1" id="pauseSessionBtn"><i class="fas fa-pause"></i> Pause</button>
             <button class="btn btn-sm btn-outline-danger me-2" id="closeSessionBtn"><i class="fas fa-stop"></i> Close</button>
@@ -221,6 +225,7 @@
                     <button class="btn btn-plan btn-plan-order btn-sm" id="createOrderFromPlanBtn">CREATE ORDER</button>
                     <div id="coachReviewBox" class="coach-review-box" style="display:none"></div>
                     <div id="planResult" class="small mt-1 text-muted"></div>
+                    <div id="replayReviewPanel" class="replay-review-panel"></div>
                 </div>
             </div>
             <div class="order-ticket-section">
@@ -301,6 +306,7 @@
         let instrumentCatalog = [];
         let accountBalance = 10000;
         let selectedTimeframe = '1d';
+        let selectedPeriod = '1mo';
         let terminalChart = null;
         let pendingCancelId = null;
         let currentPlanId = null;
@@ -440,6 +446,59 @@
             document.getElementById('planRiskUnit').textContent = m.unit;
             document.getElementById('planRewardUnit').textContent = m.unit;
             document.getElementById('planAssetClass').textContent = cls;
+        }
+
+        function updateReplayDisplay(payload) {
+            const modeEl = document.getElementById('modeBadge');
+            const sessionEl = document.getElementById('sessionBadge');
+            const progressEl = document.getElementById('sessionProgress');
+            const marketEl = document.getElementById('marketStatus');
+            if (!payload) {
+                modeEl.textContent = 'LIVE';
+                modeEl.className = 'session-badge session-live ms-0 mt-1 d-inline-block';
+                sessionEl.textContent = 'IDLE';
+                sessionEl.className = 'session-badge session-idle ms-1 mt-1 d-inline-block';
+                progressEl.textContent = '';
+                marketEl.textContent = 'Idle';
+                return;
+            }
+            const replayActive = payload.mode === 'replay' && payload.status !== 'idle';
+            modeEl.textContent = replayActive ? 'REPLAY' : 'LIVE';
+            modeEl.className = 'session-badge ' + (replayActive ? 'session-replay' : 'session-live') + ' ms-0 mt-1 d-inline-block';
+            const venueState = payload.state || payload.status || 'idle';
+            sessionEl.textContent = String(venueState).toUpperCase();
+            sessionEl.className = 'session-badge ' + (
+                venueState === 'open' ? 'session-open' :
+                venueState === 'closed' ? 'session-closed' : 'session-idle'
+            ) + ' ms-1 mt-1 d-inline-block';
+            marketEl.textContent = replayActive ? 'Replay' : 'Live';
+            if (replayActive && payload.total_candles) {
+                const idx = Math.max(0, (payload.current_index ?? -1) + 1);
+                const hidden = payload.hidden_candles ?? 0;
+                progressEl.textContent = `${payload.progress_pct ?? 0}% · ${idx}/${payload.total_candles} · ${hidden} hidden`;
+            } else {
+                progressEl.textContent = payload.progress_pct ? `${payload.progress_pct}%` : '';
+            }
+        }
+
+        async function loadReplayRecordReview(planId) {
+            const panel = document.getElementById('replayReviewPanel');
+            if (!planId) { panel.style.display = 'none'; return; }
+            const data = await api(`/api/replay/records/${encodeURIComponent(planId)}`);
+            if (data.error || !data.record) { panel.style.display = 'none'; return; }
+            const rec = data.record;
+            const outcome = rec.outcome || {};
+            const scoring = rec.scoring || {};
+            const dims = scoring.dimensions || {};
+            panel.style.display = 'block';
+            panel.innerHTML = `
+                <strong>Replay Record</strong> · ${rec.status.toUpperCase()}
+                <div class="mt-1">P/L: <strong>${outcome.pnl != null ? '$' + outcome.pnl.toFixed(2) : '—'}</strong>
+                · R: ${outcome.r_multiple ?? '—'} · ${outcome.win_loss || '—'}</div>
+                <div class="text-muted">Score: ${scoring.total_score ?? '—'}/100
+                ${dims.plan_quality != null ? ` · Plan ${dims.plan_quality}` : ''}
+                ${dims.execution != null ? ` · Exec ${dims.execution}` : ''}</div>
+                <div class="text-muted mt-1">Snapshot @ ${(rec.decision_context || {}).captured_at || '—'}</div>`;
         }
 
         function updateSessionDisplay(session) {
@@ -649,6 +708,7 @@
                 el.className = 'small mt-1 text-success';
                 refreshBottomPanel();
                 loadOrders();
+                if (currentPlanId) loadReplayRecordReview(currentPlanId);
             } catch (err) {
                 el.textContent = err.message;
                 el.className = 'small mt-1 text-danger';
@@ -720,12 +780,14 @@
             selectedAssetClass = state.asset_class || 'STOCK';
             selectedDisplaySymbol = state.display_symbol || selectedInstrumentId;
             selectedTimeframe = state.timeframe || '1d';
+            selectedPeriod = state.period || '1mo';
             document.getElementById('chartSymbol').textContent = selectedDisplaySymbol;
             document.getElementById('orderSymbol').value = selectedInstrumentId;
             document.getElementById('assetClassSelect').value = selectedAssetClass;
             document.getElementById('chartTimeframe').value = selectedTimeframe;
             updateAssetClassLabels(selectedAssetClass);
             updateSessionDisplay(state.session);
+            updateReplayDisplay(state.replay || null);
             await loadInstrumentCatalog();
             document.getElementById('instrumentSelect').value = selectedInstrumentId;
 
@@ -751,8 +813,20 @@
         async function loadChart() {
             if (!terminalChart) return;
             try {
-                await terminalChart.load(selectedSymbol, selectedTimeframe);
+                const payload = await terminalChart.load(selectedSymbol, selectedTimeframe);
                 refreshChartPriceLines();
+                const readout = document.getElementById('crosshairReadout');
+                if (payload && payload.session_capped) {
+                    readout.dataset.replayHint = '1';
+                } else if (readout.dataset.replayHint) {
+                    delete readout.dataset.replayHint;
+                }
+                if (payload && payload.count === 0 && payload.session_capped === false) {
+                    const session = await api('/api/session/state');
+                    if (session.mode === 'replay' && session.current_index < 0) {
+                        readout.textContent = 'Replay active — Step to reveal first candle';
+                    }
+                }
             } catch (err) {
                 document.getElementById('crosshairReadout').textContent = err.message || 'Chart load failed';
             }
@@ -859,6 +933,7 @@
             document.getElementById('statRisk').textContent = typeof risk === 'number' ? risk + '/100' : risk;
             const state = session.state || 'idle';
             document.getElementById('marketStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+            updateReplayDisplay(session);
         }
 
         async function placeOrder() {
@@ -878,7 +953,10 @@
             const sym = document.getElementById('orderSymbol').value.trim().toUpperCase() || selectedSymbol;
             const resp = await api('/api/orders/close-position', { method: 'POST', body: JSON.stringify({ symbol: sym }) });
             if (resp.error) alert(resp.error);
-            else refreshBottomPanel();
+            else {
+                refreshBottomPanel();
+                if (currentPlanId) loadReplayRecordReview(currentPlanId);
+            }
         }
 
         async function cancelLastPending() {
@@ -904,15 +982,43 @@
             if (sym) { await api('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol: sym }) }); loadWatchlist(); }
         };
         document.getElementById('startSessionBtn').onclick = async () => {
-            const resp = await api('/api/session/start', { method: 'POST', body: JSON.stringify({ initial_cash: 10000 }) });
-            if (!resp.error) { document.getElementById('sessionBadge').textContent = resp.state.state.toUpperCase(); refreshBottomPanel(); }
+            const resp = await api('/api/session/start', {
+                method: 'POST',
+                body: JSON.stringify({
+                    initial_cash: 10000,
+                    instrument_id: selectedInstrumentId,
+                    interval: selectedTimeframe,
+                    period: selectedPeriod,
+                }),
+            });
+            if (!resp.error) {
+                updateReplayDisplay(resp.state);
+                refreshBottomPanel();
+                await loadChart();
+            }
         };
         document.getElementById('stepSessionBtn').onclick = async () => {
             const resp = await api('/api/session/step', { method: 'POST' });
-            if (!resp.error) { document.getElementById('sessionProgress').textContent = resp.progress_pct + '%'; loadWatchlist(); loadChart(); refreshBottomPanel(); loadCommentary(); }
+            if (!resp.error) {
+                updateReplayDisplay(resp);
+                loadWatchlist();
+                loadChart();
+                refreshBottomPanel();
+                loadCommentary();
+                if (currentPlanId) loadReplayRecordReview(currentPlanId);
+            }
         };
-        document.getElementById('pauseSessionBtn').onclick = () => api('/api/session/pause', { method: 'POST' });
-        document.getElementById('closeSessionBtn').onclick = () => api('/api/session/close', { method: 'POST' });
+        document.getElementById('pauseSessionBtn').onclick = async () => {
+            const resp = await api('/api/session/pause', { method: 'POST' });
+            if (!resp.error) updateReplayDisplay(resp);
+        };
+        document.getElementById('closeSessionBtn').onclick = async () => {
+            const resp = await api('/api/session/close', { method: 'POST' });
+            if (!resp.error) {
+                updateReplayDisplay(resp.state || resp);
+                await loadChart();
+            }
+        };
 
         document.getElementById('assetClassSelect').addEventListener('change', async (e) => {
             selectedAssetClass = e.target.value;
@@ -926,6 +1032,10 @@
 
         document.getElementById('chartTimeframe').addEventListener('change', async (e) => {
             selectedTimeframe = e.target.value;
+            await api('/api/chart/state', {
+                method: 'PUT',
+                body: JSON.stringify({ timeframe: selectedTimeframe, period: selectedPeriod }),
+            });
             await loadChart();
         });
 
@@ -974,6 +1084,8 @@
             loadCommentary();
             reviewOrder();
             loadStats();
+            const session = await api('/api/session/state');
+            updateReplayDisplay(session);
         })();
     </script>
 </body>

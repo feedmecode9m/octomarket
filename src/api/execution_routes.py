@@ -168,6 +168,11 @@ def close_position():
             _journal.update_exit(entry["id"], price)
             break
 
+    pos_qty = pos.get("quantity")
+    from ..replay.replay_memory import get_replay_memory
+
+    get_replay_memory().on_manual_close(symbol, price, quantity=pos_qty)
+
     return jsonify({"message": "Position closed", "result": result})
 
 

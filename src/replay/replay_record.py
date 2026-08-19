@@ -60,9 +60,13 @@ def build_replay_record_from_plan(
     plan: Dict[str, Any],
     *,
     chart_state: Optional[Dict[str, Any]] = None,
-    mode: str = "live",
+    mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Initialize a replay record when a trade plan is created."""
+    if mode is None:
+        from .replay_session import is_replay_mode
+
+        mode = "replay" if is_replay_mode() else "live"
     now = datetime.now().isoformat()
     return {
         "id": new_record_id(),
