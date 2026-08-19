@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from ..ai_agent.agent import TradingCoachAgent
+from ..ai_agent.execution_coach import get_execution_coach
 from ..ai_agent.trade_journal import get_trade_journal
 from ..learning.lessons import get_all_lessons, get_lesson_by_id
 from ..models.state import get_simulator_state
@@ -12,6 +13,7 @@ ai_bp = Blueprint("ai", __name__, url_prefix="/api/ai")
 _coach = TradingCoachAgent()
 _simulator_state = get_simulator_state()
 _journal = get_trade_journal()
+_execution_coach = get_execution_coach()
 
 
 @ai_bp.route("/analyze-market", methods=["POST"])
@@ -193,6 +195,34 @@ def review_strategy():
         if not strategy or not backtest_results:
             return jsonify({"error": "strategy and backtest_results are required"}), 400
         result = _coach.review_strategy(strategy, backtest_results)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@ai_bp.route("/review-execution", methods=["POST"])
+def review_execution():
+    """Review a planned order before execution."""
+    try:
+        data = request.get_json(silent=True) or {}
+        order = data.get("order")
+        if not order:
+            return jsonify({"error": "order is required"}), 400
+
+        from ..simulation.paper_portfolio import get_paper_portfolio
+        from ..simulation.session import get_market_session
+
+        session = get_market_session()
+        prices = session.get_state().get("prices", {})
+        portfolio = get_paper_portfolio().to_dict(prices)
+        current_price = prices.get(order.get("symbol", "").upper(), order.get("limit_price", 0))
+
+        result = _execution_coach.review(
+            order=order,
+            portfolio=portfolio,
+            current_price=current_price,
+            trade_history=data.get("trade_history"),
+        )
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
