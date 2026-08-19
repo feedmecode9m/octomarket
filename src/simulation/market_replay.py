@@ -1,4 +1,8 @@
-"""Step through historical OHLCV candles one at a time."""
+"""Step through historical OHLCV candles one at a time.
+
+Deprecated: use ReplaySessionManager (/api/replay/*) as the canonical replay engine.
+This module remains for unit tests of low-level candle stepping utilities.
+"""
 
 import threading
 import time

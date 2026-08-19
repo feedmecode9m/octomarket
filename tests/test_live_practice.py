@@ -98,7 +98,7 @@ class TestMarketSession(unittest.TestCase):
     def setUp(self):
         self.session = MarketSession()
 
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_start_and_step(self, MockFetcher):
         mock_fetcher = MockFetcher.return_value
         mock_fetcher.get_real_time_data.return_value = _sample_ohlcv(5)
@@ -110,7 +110,7 @@ class TestMarketSession(unittest.TestCase):
         self.assertEqual(state["state"], "open")
         self.assertIn("AAPL", state["prices"])
 
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_pause_and_resume(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
         self.session.start(["AAPL"])
@@ -120,14 +120,14 @@ class TestMarketSession(unittest.TestCase):
         self.session.resume()
         self.assertEqual(self.session.get_state()["state"], "open")
 
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_close_session(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(3)
         self.session.start(["AAPL"])
         self.session.close()
         self.assertEqual(self.session.get_state()["state"], "closed")
 
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_data(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
         self.session.start(["AAPL"])
@@ -255,7 +255,7 @@ class TestTerminalAPI(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     @mock.patch("src.api.terminal_routes._fetch_price")
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_session_lifecycle(self, MockSessionFetcher, mock_fetch_price):
         MockSessionFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
         mock_fetch_price.return_value = (183, 180)
@@ -271,7 +271,7 @@ class TestTerminalAPI(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     @mock.patch("src.api.terminal_routes._fetch_price")
-    @mock.patch("src.simulation.session.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_terminal_trade(self, MockSessionFetcher, mock_fetch_price):
         MockSessionFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
         mock_fetch_price.return_value = (183, 180)

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from ..core.data_fetcher import DataFetcher
+from ..market.instrument import resolve_instrument
 
 
 class MarketSession:
@@ -19,31 +19,53 @@ class MarketSession:
         self._state = "idle"
         self._symbols: List[str] = []
         self._data: Dict[str, pd.DataFrame] = {}
+        self._instruments: Dict[str, Dict[str, Any]] = {}
         self._index = -1
         self._max_length = 0
         self._prices: Dict[str, float] = {}
         self._prev_closes: Dict[str, float] = {}
         self._started_at: Optional[str] = None
         self._initial_cash = 10000.0
+        self._interval = "1d"
+        self._period = "5d"
 
-    def start(self, symbols: List[str], initial_cash: float = 10000.0, period: str = "5d", interval: str = "1d") -> Dict[str, Any]:
+    def start(
+        self,
+        symbols: List[str],
+        initial_cash: float = 10000.0,
+        period: str = "5d",
+        interval: str = "1d",
+    ) -> Dict[str, Any]:
         if not symbols:
             raise ValueError("At least one symbol required")
 
+        from ..market.data_provider import get_market_data_provider
+
+        provider = get_market_data_provider()
+
         with self._lock:
-            self._symbols = [s.upper() for s in symbols]
+            self._symbols = []
             self._data = {}
+            self._instruments = {}
             self._prices = {}
             self._prev_closes = {}
             self._max_length = 0
+            self._interval = interval
+            self._period = period
 
-            for symbol in self._symbols:
-                fetcher = DataFetcher(symbol=symbol, interval=interval, period=period)
-                df = fetcher.get_real_time_data()
-                if not df.empty:
-                    self._data[symbol] = df
-                    self._max_length = max(self._max_length, len(df))
-                    self._prev_closes[symbol] = float(df["Close"].iloc[0])
+            for raw in symbols:
+                instrument = resolve_instrument(raw)
+                session_key = instrument.symbol.upper()
+                df = provider.candles(instrument.instrument_id, interval, period=period)
+                if df.empty:
+                    continue
+
+                self._data[session_key] = df
+                self._instruments[session_key] = instrument.to_dict()
+                if session_key not in self._symbols:
+                    self._symbols.append(session_key)
+                self._max_length = max(self._max_length, len(df))
+                self._prev_closes[session_key] = float(df["Close"].iloc[0])
 
             if not self._data:
                 raise ValueError("Could not load data for any symbol")
@@ -88,6 +110,27 @@ class MarketSession:
         with self._lock:
             self._state = "closed"
 
+    def _resolve_session_key(self, raw: str) -> Optional[str]:
+        text = (raw or "").upper()
+        if text in self._data:
+            return text
+        try:
+            instrument = resolve_instrument(text)
+            key = instrument.symbol.upper()
+            if key in self._data:
+                return key
+        except ValueError:
+            return None
+        return None
+
+    def get_instrument(self, raw: str) -> Optional[Dict[str, Any]]:
+        key = self._resolve_session_key(raw)
+        if not key:
+            return None
+        with self._lock:
+            payload = self._instruments.get(key)
+            return dict(payload) if payload else None
+
     def get_state(self) -> Dict[str, Any]:
         with self._lock:
             progress = round((self._index + 1) / self._max_length * 100, 1) if self._max_length > 0 else 0
@@ -107,7 +150,7 @@ class MarketSession:
 
             return {
                 "state": self._state,
-                "symbols": self._symbols,
+                "symbols": list(self._symbols),
                 "current_index": self._index,
                 "max_index": self._max_length - 1,
                 "progress_pct": progress,
@@ -117,11 +160,17 @@ class MarketSession:
                 "started_at": self._started_at,
                 "initial_cash": self._initial_cash,
                 "at_end": self._index >= self._max_length - 1 if self._max_length > 0 else False,
+                "interval": self._interval,
+                "period": self._period,
+                "instruments": {k: dict(v) for k, v in self._instruments.items()},
             }
 
     def get_chart_data(self, symbol: str) -> Dict[str, Any]:
         with self._lock:
-            df = self._data.get(symbol.upper())
+            key = self._resolve_session_key(symbol)
+            if not key:
+                return {"timestamps": [], "prices": []}
+            df = self._data.get(key)
             if df is None or self._index < 0:
                 return {"timestamps": [], "prices": []}
 
@@ -132,17 +181,22 @@ class MarketSession:
 
     def is_active(self) -> bool:
         with self._lock:
-            return self._state != "idle"
+            return self._state not in ("idle", "closed")
 
     def has_symbol(self, symbol: str) -> bool:
-        symbol = symbol.upper()
         with self._lock:
-            return symbol in self._data and not self._data[symbol].empty
+            key = self._resolve_session_key(symbol)
+            if not key:
+                return False
+            df = self._data.get(key)
+            return df is not None and not df.empty
 
     def get_ohlcv_frame(self, symbol: str) -> Optional[pd.DataFrame]:
-        symbol = symbol.upper()
         with self._lock:
-            df = self._data.get(symbol)
+            key = self._resolve_session_key(symbol)
+            if not key:
+                return None
+            df = self._data.get(key)
             if df is None or df.empty:
                 return None
             return df.copy()
@@ -150,6 +204,10 @@ class MarketSession:
     def get_session_index(self) -> int:
         with self._lock:
             return self._index
+
+    def resolve_key(self, raw: str) -> Optional[str]:
+        with self._lock:
+            return self._resolve_session_key(raw)
 
 
 _session_instance: Optional[MarketSession] = None

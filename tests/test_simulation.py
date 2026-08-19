@@ -235,7 +235,7 @@ class TestSimulationAPI(unittest.TestCase):
 
     def test_replay_load_and_step(self):
         import unittest.mock as mock
-        with mock.patch("src.api.simulation_routes.DataFetcher") as MockFetcher:
+        with mock.patch("src.market.yahoo_provider.DataFetcher") as MockFetcher:
             MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
             load = self.client.post("/api/simulation/replay/load", json={"symbol": "AAPL", "initial_cash": 10000})
             self.assertEqual(load.status_code, 200)
@@ -246,7 +246,7 @@ class TestSimulationAPI(unittest.TestCase):
 
     def test_manual_trade_hold(self):
         import unittest.mock as mock
-        with mock.patch("src.api.simulation_routes.DataFetcher") as MockFetcher:
+        with mock.patch("src.market.yahoo_provider.DataFetcher") as MockFetcher:
             MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
             self.client.post("/api/simulation/replay/load", json={"symbol": "AAPL"})
             self.client.post("/api/simulation/replay/step")
