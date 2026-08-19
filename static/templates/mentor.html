@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Trading Mentor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --accent-primary: #00d4ff; --accent-success: #00ff88; --accent-warning: #ffa502;
+            --accent-danger: #ff4757; --text-primary: #fff; --border-color: #333;
+        }
+        body { background: var(--bg-primary); color: var(--text-primary); font-family: 'Segoe UI', sans-serif; }
+        .panel { background: var(--bg-tertiary); border: 1px solid var(--border-color); padding: 20px; margin-bottom: 20px; }
+        .panel h5 { color: var(--accent-primary); text-transform: uppercase; letter-spacing: 1px; }
+        .skill-ring { font-size: 3rem; font-weight: 800; color: var(--accent-success); }
+        .mistake-card { background: var(--bg-secondary); border-left: 3px solid var(--accent-danger); padding: 12px; margin-bottom: 8px; }
+        .scenario-card { background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 15px; margin-bottom: 10px; cursor: pointer; }
+        .scenario-card:hover { border-color: var(--accent-primary); }
+        .form-control, .form-select { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--border-color); }
+        a { color: var(--accent-primary); }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="fas fa-user-graduate"></i> AI Trading Mentor</h1>
+            <div>
+                <a href="/" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
+                <a href="/strategy-lab" class="btn btn-outline-primary btn-sm">Strategy Lab</a>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="panel text-center">
+                    <h5>Skill Score</h5>
+                    <div class="skill-ring" id="skillScore">—</div>
+                    <p id="skillLevel" class="text-muted">Loading...</p>
+                </div>
+                <div class="panel">
+                    <h5><i class="fas fa-id-card"></i> Trader Profile</h5>
+                    <p><strong>Level:</strong> <span id="profileLevel">—</span></p>
+                    <p><strong>Risk Tolerance:</strong> <span id="profileRisk">—</span></p>
+                    <p><strong>Strengths:</strong></p>
+                    <ul id="profileStrengths"></ul>
+                    <p><strong>Weaknesses:</strong></p>
+                    <ul id="profileWeaknesses"></ul>
+                </div>
+                <div class="panel">
+                    <h5><i class="fas fa-chart-line"></i> Progress</h5>
+                    <div id="progressInfo">Loading...</div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="panel">
+                    <h5><i class="fas fa-comment"></i> Mentor Guidance</h5>
+                    <p id="mentorSummary" class="lead">Loading personalized advice...</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-success">Strengths</h6>
+                            <ul id="mentorStrengths"></ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-danger">Weaknesses</h6>
+                            <ul id="mentorWeaknesses"></ul>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <input type="text" class="form-control mb-2" id="mentorQuestion"
+                            placeholder="Ask: Why did I lose money? What should I practice next?">
+                        <button class="btn btn-primary btn-sm" id="askMentorBtn"><i class="fas fa-paper-plane"></i> Ask Mentor</button>
+                    </div>
+                    <div id="mentorAnswer" class="mt-3 panel" style="display:none;"></div>
+                </div>
+
+                <div class="panel">
+                    <h5><i class="fas fa-exclamation-circle"></i> Detected Mistakes</h5>
+                    <div id="mistakesList">Analyzing trade history...</div>
+                </div>
+
+                <div class="panel">
+                    <h5><i class="fas fa-book-open"></i> Recommended Lessons</h5>
+                    <div id="lessonRecs"></div>
+                    <h5 class="mt-3"><i class="fas fa-trophy"></i> Recommended Challenge</h5>
+                    <div id="challengeRec"></div>
+                </div>
+
+                <div class="panel">
+                    <h5><i class="fas fa-theater-masks"></i> Scenario Training</h5>
+                    <div id="scenariosList"></div>
+                    <div id="scenarioActive" style="display:none;" class="mt-3">
+                        <h6 id="scenarioTitle"></h6>
+                        <p id="scenarioDesc"></p>
+                        <div id="scenarioOptions"></div>
+                        <div id="scenarioResult" class="mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadMentor() {
+            const resp = await fetch('/api/mentor/advice');
+            const data = await resp.json();
+            document.getElementById('skillScore').textContent = data.skill_score;
+            document.getElementById('skillLevel').textContent = data.skill_level;
+            document.getElementById('mentorSummary').textContent = data.summary;
+            fillList('mentorStrengths', data.strengths);
+            fillList('mentorWeaknesses', data.weaknesses);
+            fillList('lessonRecs', (data.next_lessons || []).map(function(l) {
+                return l.title + ' — ' + l.reason;
+            }));
+            if (data.recommended_challenge) {
+                document.getElementById('challengeRec').innerHTML =
+                    '<strong>' + data.recommended_challenge.title + '</strong>: ' + data.recommended_challenge.reason;
+            }
+        }
+
+        async function loadProfile() {
+            const resp = await fetch('/api/profile');
+            const p = await resp.json();
+            document.getElementById('profileLevel').textContent = p.level;
+            document.getElementById('profileRisk').textContent = p.risk_tolerance;
+            fillList('profileStrengths', p.strengths || []);
+            fillList('profileWeaknesses', p.weaknesses || []);
+        }
+
+        async function loadMistakes() {
+            const resp = await fetch('/api/mistakes');
+            const data = await resp.json();
+            const el = document.getElementById('mistakesList');
+            if (!data.mistakes || data.mistakes.length === 0) {
+                el.innerHTML = '<p class="text-muted">No mistake patterns detected yet. Keep trading to build history.</p>';
+                return;
+            }
+            el.innerHTML = data.mistakes.map(function(m) {
+                return '<div class="mistake-card"><strong>' + m.mistake + '</strong> (severity: ' + m.severity + ')' +
+                    '<br><small>' + m.description + '</small>' +
+                    '<br><em>' + m.recommendation + '</em></div>';
+            }).join('');
+        }
+
+        async function loadProgress() {
+            const resp = await fetch('/api/progress');
+            const p = await resp.json();
+            document.getElementById('progressInfo').innerHTML =
+                '<p>Today: ' + p.daily.lessons_completed + ' lessons, ' +
+                p.daily.scenarios_completed + ' scenarios, ' +
+                p.daily.trades_reviewed + ' trades reviewed</p>' +
+                '<p>Streak: ' + p.streak_days + ' days</p>' +
+                '<p>Skill change: ' + (p.skill_changes.change_7d >= 0 ? '+' : '') +
+                p.skill_changes.change_7d + ' pts</p>';
+        }
+
+        async function loadScenarios() {
+            const resp = await fetch('/api/scenarios');
+            const data = await resp.json();
+            document.getElementById('scenariosList').innerHTML = (data.scenarios || []).map(function(s) {
+                return '<div class="scenario-card" data-id="' + s.id + '"><strong>' + s.title + '</strong><br>' +
+                    '<small>' + s.description + '</small></div>';
+            }).join('');
+            document.querySelectorAll('.scenario-card').forEach(function(card) {
+                card.addEventListener('click', function() { startScenario(parseInt(this.dataset.id)); });
+            });
+        }
+
+        async function startScenario(id) {
+            const resp = await fetch('/api/scenarios/' + id);
+            const s = await resp.json();
+            document.getElementById('scenarioActive').style.display = 'block';
+            document.getElementById('scenarioTitle').textContent = s.title;
+            document.getElementById('scenarioDesc').textContent = s.description + ' — ' + s.question;
+            document.getElementById('scenarioResult').innerHTML = '';
+            document.getElementById('scenarioOptions').innerHTML = s.options.map(function(o) {
+                return '<button class="btn btn-outline-light btn-sm me-2 mb-2 scenario-opt" data-action="' +
+                    o.action + '">' + o.text + '</button>';
+            }).join('');
+            document.querySelectorAll('.scenario-opt').forEach(function(btn) {
+                btn.addEventListener('click', async function() {
+                    const r = await fetch('/api/scenarios/' + id + '/answer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: this.dataset.action }),
+                    });
+                    const result = await r.json();
+                    document.getElementById('scenarioResult').innerHTML =
+                        '<div class="panel"><strong>Score: ' + result.overall_score + '/100</strong> ' +
+                        (result.was_optimal ? '✅' : '❌') + '<br>' + result.feedback + '</div>';
+                    loadProgress();
+                });
+            });
+        }
+
+        function fillList(id, items) {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            (items || []).forEach(function(item) {
+                const li = document.createElement('li');
+                li.textContent = item;
+                el.appendChild(li);
+            });
+        }
+
+        document.getElementById('askMentorBtn').addEventListener('click', async function() {
+            const q = document.getElementById('mentorQuestion').value;
+            if (!q) return;
+            const resp = await fetch('/api/mentor/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: q }),
+            });
+            const data = await resp.json();
+            const el = document.getElementById('mentorAnswer');
+            el.style.display = 'block';
+            el.innerHTML = '<strong>Q:</strong> ' + q + '<br><strong>A:</strong> ' + data.answer;
+        });
+
+        loadMentor();
+        loadProfile();
+        loadMistakes();
+        loadProgress();
+        loadScenarios();
+    </script>
+</body>
+</html>
