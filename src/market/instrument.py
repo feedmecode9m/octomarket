@@ -182,13 +182,22 @@ def _instrument_from_contract(contract: FuturesContract) -> Instrument:
 
 
 def list_instruments(asset_class: Optional[AssetClass] = None) -> List[Dict[str, Any]]:
-    """Catalog of known Phase 14A instruments."""
+    """Catalog of supported terminal instruments."""
     items: List[Instrument] = []
     for sym in STOCK_SPECS:
         items.append(_instrument_from_stock(sym))
     for sym in FOREX_SPECS:
         items.append(_instrument_from_forex(sym))
-    items.append(_instrument_from_contract(build_contract("ES", "2026-12")))
+    for root, month in FUTURES_CATALOG:
+        items.append(_instrument_from_contract(build_contract(root, month)))
     if asset_class:
         items = [i for i in items if i.asset_class == asset_class]
     return [i.to_dict() for i in items]
+
+
+FUTURES_CATALOG = (
+    ("ES", "2026-12"),
+    ("NQ", "2026-12"),
+    ("CL", "2026-12"),
+    ("GC", "2026-12"),
+)

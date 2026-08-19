@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .timeframe import DEFAULT_INTERVAL, normalize_interval, validate_timeframe
+from ..market.asset_class import AssetClass
 from ..market.instrument import resolve_instrument
+from ..market.session_rules import get_session_rules
 
 
 class ChartStateManager:
@@ -86,10 +88,12 @@ class ChartStateManager:
 
     def _apply_instrument(self, raw: str):
         instrument = resolve_instrument(raw)
+        session = get_session_rules(instrument.asset_class, instrument.exchange)
         self._state["symbol"] = instrument.symbol
         self._state["instrument_id"] = instrument.instrument_id
         self._state["asset_class"] = instrument.asset_class.value
         self._state["display_symbol"] = instrument.display_symbol()
+        self._state["session"] = session.to_dict()
 
     def reset(self):
         with self._lock:
@@ -101,6 +105,7 @@ class ChartStateManager:
             "instrument_id": "AAPL",
             "asset_class": "STOCK",
             "display_symbol": "AAPL",
+            "session": get_session_rules(AssetClass.STOCK, "NASDAQ").to_dict(),
             "timeframe": DEFAULT_INTERVAL,
             "period": "5d",
             "zoom": {"start": None, "end": None},

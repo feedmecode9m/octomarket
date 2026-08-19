@@ -106,6 +106,7 @@
                 <span>Risk: <strong id="statRisk">—</strong></span>
             </div>
             <span class="session-badge session-idle ms-0 mt-1 d-inline-block" id="sessionBadge">IDLE</span>
+            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="marketSessionBadge">NYSE</span>
             <span class="text-muted ms-2" id="sessionProgress"></span>
             <span class="hotkey-hint ms-2">B=Buy S=Sell X=Close ESC=Cancel</span>
         </div>
@@ -134,7 +135,14 @@
         <div class="panel chart-panel">
             <div class="panel-header"><i class="fas fa-chart-bar"></i> Chart Workspace</div>
             <div class="chart-toolbar">
+                <select class="form-select form-select-sm" id="assetClassSelect" aria-label="Asset class" style="max-width:100px">
+                    <option value="STOCK">Stock</option>
+                    <option value="FOREX">Forex</option>
+                    <option value="FUTURES">Futures</option>
+                </select>
+                <select class="form-select form-select-sm" id="instrumentSelect" aria-label="Instrument" style="max-width:130px"></select>
                 <strong id="chartSymbol">AAPL</strong>
+                <span class="text-muted small" id="sessionLabel">NYSE</span>
                 <label class="text-muted mb-0">TF</label>
                 <select class="form-select form-select-sm" id="chartTimeframe" aria-label="Timeframe">
                     <option value="1m">1m</option>
@@ -178,8 +186,9 @@
                 <div class="panel-header"><i class="fas fa-clipboard-list"></i> Trade Plan <span class="plan-status ms-2" id="planStatus">DRAFT</span></div>
                 <div class="p-2">
                     <div class="mb-1">
-                        <label class="small text-muted">Symbol</label>
+                        <label class="small text-muted">Instrument</label>
                         <input type="text" class="form-control form-control-sm" id="planSymbol" value="AAPL" readonly>
+                        <span class="small text-muted" id="planAssetClass">STOCK</span>
                     </div>
                     <div class="mb-1">
                         <label class="small text-muted">Direction</label>
@@ -194,12 +203,12 @@
                         <div class="col-4"><label class="small text-muted">Target</label><input type="number" step="0.01" class="form-control form-control-sm" id="planTarget"></div>
                     </div>
                     <div class="mb-1">
-                        <label class="small text-muted">Qty</label>
-                        <input type="number" class="form-control form-control-sm" id="planQty" value="10">
+                        <label class="small text-muted" id="planQtyLabel">Qty (shares)</label>
+                        <input type="number" class="form-control form-control-sm" id="planQty" value="10" step="any">
                     </div>
                     <div class="plan-metrics">
-                        <div>Risk: <strong id="planRiskPts">—</strong> pts · $<strong id="planRiskUsd">—</strong></div>
-                        <div>Reward: <strong id="planRewardPts">—</strong> pts · $<strong id="planRewardUsd">—</strong></div>
+                        <div>Risk: <strong id="planRiskPts">—</strong> <span id="planRiskUnit">pts</span> · $<strong id="planRiskUsd">—</strong></div>
+                        <div>Reward: <strong id="planRewardPts">—</strong> <span id="planRewardUnit">pts</span> · $<strong id="planRewardUsd">—</strong></div>
                         <div>R:R <strong id="planRR">—</strong></div>
                         <div class="text-muted small mt-1" id="planEntrySource"></div>
                     </div>
@@ -238,7 +247,7 @@
                     </select>
                 </div>
                 <div class="row g-1 mb-1">
-                    <div class="col-6"><label class="small text-muted">Qty</label><input type="number" class="form-control form-control-sm" id="orderQty" value="10"></div>
+                    <div class="col-6"><label class="small text-muted" id="orderQtyLabel">Qty (shares)</label><input type="number" class="form-control form-control-sm" id="orderQty" value="10" step="any"></div>
                     <div class="col-6"><label class="small text-muted">Price</label><input type="number" step="0.01" class="form-control form-control-sm" id="orderPrice" placeholder="Limit"></div>
                 </div>
                 <div class="row g-1 mb-1">
@@ -286,6 +295,11 @@
 
     <script>
         let selectedSymbol = 'AAPL';
+        let selectedInstrumentId = 'AAPL';
+        let selectedAssetClass = 'STOCK';
+        let selectedDisplaySymbol = 'AAPL';
+        let instrumentCatalog = [];
+        let accountBalance = 10000;
         let selectedTimeframe = '1d';
         let terminalChart = null;
         let pendingCancelId = null;
@@ -413,6 +427,77 @@
             return null;
         }
 
+        function updateAssetClassLabels(assetClass) {
+            const cls = assetClass || selectedAssetClass;
+            const maps = {
+                FOREX: { plan: 'Size (lots)', order: 'Qty (units)', unit: 'pips' },
+                FUTURES: { plan: 'Contracts', order: 'Contracts', unit: 'ticks' },
+                STOCK: { plan: 'Qty (shares)', order: 'Qty (shares)', unit: 'pts' },
+            };
+            const m = maps[cls] || maps.STOCK;
+            document.getElementById('planQtyLabel').textContent = m.plan;
+            document.getElementById('orderQtyLabel').textContent = m.order;
+            document.getElementById('planRiskUnit').textContent = m.unit;
+            document.getElementById('planRewardUnit').textContent = m.unit;
+            document.getElementById('planAssetClass').textContent = cls;
+        }
+
+        function updateSessionDisplay(session) {
+            const badge = document.getElementById('marketSessionBadge');
+            const label = document.getElementById('sessionLabel');
+            if (!session) { badge.textContent = '—'; label.textContent = '—'; return; }
+            const venue = session.venue || '—';
+            badge.textContent = session.is_24h ? '24H' : venue;
+            const win = session.windows && session.windows[0];
+            label.textContent = win ? `${venue} · ${win.days}` : venue;
+        }
+
+        async function loadInstrumentCatalog() {
+            const data = await api('/api/instruments');
+            instrumentCatalog = data.instruments || [];
+            populateInstrumentSelect(selectedAssetClass);
+        }
+
+        function populateInstrumentSelect(assetClass) {
+            const sel = document.getElementById('instrumentSelect');
+            const items = instrumentCatalog.filter((i) => i.asset_class === assetClass);
+            sel.innerHTML = items.map((i) =>
+                `<option value="${i.instrument_id}">${i.display_symbol || i.instrument_id}</option>`
+            ).join('');
+            if (items.length) {
+                const match = items.find((i) => i.instrument_id === selectedInstrumentId);
+                sel.value = (match || items[0]).instrument_id;
+            }
+        }
+
+        async function switchInstrument(instrumentId, syncChartState = true) {
+            const info = await api(`/api/instruments/${encodeURIComponent(instrumentId)}`);
+            if (info.error) return;
+            selectedInstrumentId = info.instrument_id;
+            selectedSymbol = info.symbol;
+            selectedAssetClass = info.asset_class;
+            selectedDisplaySymbol = info.display_symbol || info.instrument_id;
+            document.getElementById('assetClassSelect').value = selectedAssetClass;
+            populateInstrumentSelect(selectedAssetClass);
+            document.getElementById('instrumentSelect').value = selectedInstrumentId;
+            document.getElementById('chartSymbol').textContent = selectedDisplaySymbol;
+            document.getElementById('orderSymbol').value = selectedInstrumentId;
+            document.getElementById('planSymbol').value = selectedDisplaySymbol;
+            updateAssetClassLabels(selectedAssetClass);
+            updateSessionDisplay(info.session);
+            if (syncChartState) {
+                await api('/api/chart/state', {
+                    method: 'PUT',
+                    body: JSON.stringify({ instrument_id: selectedInstrumentId }),
+                });
+            }
+            if (terminalChart) terminalChart.symbol = selectedSymbol;
+            await loadWatchlist();
+            await loadChart();
+            await loadTradePlan();
+            reviewOrder();
+        }
+
         function updatePlanMetricsDisplay(plan) {
             const set = (id, val) => { document.getElementById(id).textContent = val ?? '—'; };
             if (!plan) {
@@ -420,9 +505,19 @@
                 set('planRewardPts', '—'); set('planRewardUsd', '—'); set('planRR', '—');
                 return;
             }
-            set('planRiskPts', plan.risk_points != null ? plan.risk_points.toFixed(2) : '—');
-            set('planRewardPts', plan.reward_points != null ? plan.reward_points.toFixed(2) : '—');
-            set('planRiskUsd', plan.dollar_risk != null ? plan.dollar_risk.toFixed(2) : '—');
+            const cls = plan.asset_class || selectedAssetClass;
+            updateAssetClassLabels(cls);
+            if (cls === 'FOREX') {
+                set('planRiskPts', plan.pip_risk != null ? plan.pip_risk.toFixed(1) : '—');
+                set('planRewardPts', plan.reward_pips != null ? plan.reward_pips.toFixed(1) : '—');
+            } else if (cls === 'FUTURES') {
+                set('planRiskPts', plan.tick_risk != null ? plan.tick_risk.toFixed(1) : '—');
+                set('planRewardPts', plan.reward_ticks != null ? plan.reward_ticks.toFixed(1) : '—');
+            } else {
+                set('planRiskPts', plan.risk_points != null ? plan.risk_points.toFixed(2) : '—');
+                set('planRewardPts', plan.reward_points != null ? plan.reward_points.toFixed(2) : '—');
+            }
+            set('planRiskUsd', (plan.risk_amount ?? plan.dollar_risk) != null ? Number(plan.risk_amount ?? plan.dollar_risk).toFixed(2) : '—');
             set('planRewardUsd', plan.dollar_reward != null ? plan.dollar_reward.toFixed(2) : '—');
             set('planRR', plan.risk_reward != null ? plan.risk_reward + ':1' : '—');
             document.getElementById('planStatus').textContent = plan.status || 'DRAFT';
@@ -430,35 +525,47 @@
             document.getElementById('planEntrySource').textContent = src
                 ? `Entry source: Chart Drawing #${(src.id || '').slice(0, 8)}`
                 : '';
+            if (plan.position_lots != null) document.getElementById('planQty').value = plan.position_lots;
+            else if (plan.contracts != null) document.getElementById('planQty').value = plan.contracts;
+            else if (plan.quantity != null) document.getElementById('planQty').value = plan.quantity;
         }
 
         function getPlanFormPayload() {
             const entryPrice = parseFloat(document.getElementById('planEntry').value);
+            const qty = parseFloat(document.getElementById('planQty').value);
             const payload = {
                 symbol: selectedSymbol,
+                instrument_id: selectedInstrumentId,
+                asset_class: selectedAssetClass,
                 direction: getPlanDirection(),
                 thesis: document.getElementById('planThesis').value.trim(),
-                quantity: parseInt(document.getElementById('planQty').value) || 10,
                 entry: { price: entryPrice },
                 stop_loss: { price: parseFloat(document.getElementById('planStop').value) },
                 target: { price: parseFloat(document.getElementById('planTarget').value) },
                 setup: buildSetupSnapshot(),
+                account_balance: accountBalance,
+                risk_percent: 1.0,
             };
-            if (planEntrySource) {
-                payload.entry.source = planEntrySource;
-            }
+            if (selectedAssetClass === 'FOREX') payload.position_lots = qty;
+            else if (selectedAssetClass === 'FUTURES') {
+                payload.contracts = parseInt(qty) || 1;
+                payload.quantity = payload.contracts;
+            } else payload.quantity = parseInt(qty) || 10;
+            if (planEntrySource) payload.entry.source = planEntrySource;
             return payload;
         }
 
         function applyPlanToForm(plan) {
             if (!plan) return;
             currentPlanId = plan.id;
-            document.getElementById('planSymbol').value = plan.symbol;
+            if (plan.asset_class) selectedAssetClass = plan.asset_class;
+            if (plan.instrument_id) selectedInstrumentId = plan.instrument_id;
+            document.getElementById('planSymbol').value = plan.instrument_id || plan.symbol;
+            document.getElementById('planAssetClass').textContent = plan.asset_class || selectedAssetClass;
             document.querySelector(`input[name="planDirection"][value="${plan.direction}"]`).checked = true;
             document.getElementById('planEntry').value = plan.entry?.price ?? '';
             document.getElementById('planStop').value = plan.stop_loss?.price ?? '';
             document.getElementById('planTarget').value = plan.target?.price ?? '';
-            document.getElementById('planQty').value = plan.quantity ?? 10;
             document.getElementById('planThesis').value = plan.thesis ?? '';
             planEntrySource = plan.entry?.source || null;
             updatePlanMetricsDisplay(plan);
@@ -466,10 +573,10 @@
 
         function syncPlanToOrderTicket(plan) {
             if (!plan) return;
-            document.getElementById('orderSymbol').value = plan.symbol;
+            document.getElementById('orderSymbol').value = plan.instrument_id || plan.symbol;
             document.getElementById('orderSide').value = plan.direction === 'LONG' ? 'buy' : 'sell';
             document.getElementById('orderType').value = 'limit';
-            document.getElementById('orderQty').value = plan.quantity;
+            document.getElementById('orderQty').value = plan.contracts ?? plan.position_lots ?? plan.quantity;
             document.getElementById('orderPrice').value = plan.entry?.price ?? '';
             document.getElementById('orderSL').value = plan.stop_loss?.price ?? '';
             document.getElementById('orderTP').value = plan.target?.price ?? '';
@@ -478,8 +585,9 @@
         }
 
         async function loadTradePlan() {
-            document.getElementById('planSymbol').value = selectedSymbol;
-            const data = await api(`/api/trade-plan/${encodeURIComponent(selectedSymbol)}`);
+            document.getElementById('planSymbol').value = selectedDisplaySymbol;
+            const lookup = selectedInstrumentId || selectedSymbol;
+            const data = await api(`/api/trade-plan/${encodeURIComponent(lookup)}`);
             const draft = (data.plans || []).find((p) => p.status === 'DRAFT' || p.status === 'REVIEWED' || p.status === 'APPROVED');
             if (draft) {
                 applyPlanToForm(draft);
@@ -607,11 +715,19 @@
 
         async function initTerminalChart() {
             const state = await api('/api/chart/state');
-            selectedSymbol = (state.symbol || 'AAPL').toUpperCase();
+            selectedInstrumentId = state.instrument_id || state.symbol || 'AAPL';
+            selectedSymbol = state.symbol || 'AAPL';
+            selectedAssetClass = state.asset_class || 'STOCK';
+            selectedDisplaySymbol = state.display_symbol || selectedInstrumentId;
             selectedTimeframe = state.timeframe || '1d';
-            document.getElementById('chartSymbol').textContent = selectedSymbol;
-            document.getElementById('orderSymbol').value = selectedSymbol;
+            document.getElementById('chartSymbol').textContent = selectedDisplaySymbol;
+            document.getElementById('orderSymbol').value = selectedInstrumentId;
+            document.getElementById('assetClassSelect').value = selectedAssetClass;
             document.getElementById('chartTimeframe').value = selectedTimeframe;
+            updateAssetClassLabels(selectedAssetClass);
+            updateSessionDisplay(state.session);
+            await loadInstrumentCatalog();
+            document.getElementById('instrumentSelect').value = selectedInstrumentId;
 
             terminalChart = new OctoMarketTerminalChart('chartDiv', {
                 rsiContainer: 'rsiChartDiv',
@@ -737,6 +853,7 @@
                 api('/api/session/state'),
             ]);
             document.getElementById('statBalance').textContent = '$' + (acct.balance || 0).toLocaleString();
+            accountBalance = acct.balance || accountBalance;
             document.getElementById('statEquity').textContent = '$' + (acct.equity || 0).toLocaleString();
             const risk = session.portfolio?.risk_score ?? '—';
             document.getElementById('statRisk').textContent = typeof risk === 'number' ? risk + '/100' : risk;
@@ -796,6 +913,16 @@
         };
         document.getElementById('pauseSessionBtn').onclick = () => api('/api/session/pause', { method: 'POST' });
         document.getElementById('closeSessionBtn').onclick = () => api('/api/session/close', { method: 'POST' });
+
+        document.getElementById('assetClassSelect').addEventListener('change', async (e) => {
+            selectedAssetClass = e.target.value;
+            populateInstrumentSelect(selectedAssetClass);
+            const id = document.getElementById('instrumentSelect').value;
+            if (id) await switchInstrument(id);
+        });
+        document.getElementById('instrumentSelect').addEventListener('change', async (e) => {
+            if (e.target.value) await switchInstrument(e.target.value);
+        });
 
         document.getElementById('chartTimeframe').addEventListener('change', async (e) => {
             selectedTimeframe = e.target.value;

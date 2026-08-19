@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 
 from ..core.data_fetcher import DataFetcher
+from ..market.symbol_map import data_feed_symbol
 from ..simulation.session import MarketSession, get_market_session
 from .timeframe import validate_timeframe
 
@@ -72,7 +73,8 @@ class CandleEngine:
             if cache_key in self._cache:
                 return self._cache[cache_key].copy()
 
-        fetcher = DataFetcher(symbol=symbol, interval=interval, period=period)
+        fetch_symbol = data_feed_symbol(symbol)
+        fetcher = DataFetcher(symbol=fetch_symbol, interval=interval, period=period)
         df = fetcher.get_real_time_data()
         if df.empty or not self._valid_ohlcv(df):
             return pd.DataFrame()

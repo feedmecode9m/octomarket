@@ -8,6 +8,7 @@ from src.api.terminal_routes import terminal_bp
 from src.api.chart_routes import chart_bp
 from src.api.execution_routes import execution_bp
 from src.api.trade_plan_routes import trade_plan_bp
+from src.api.instrument_routes import instrument_bp
 from src.config.product import get_product, get_product_context
 from src.utils.config import get_config
 import logging
@@ -41,6 +42,7 @@ def create_app():
         app.register_blueprint(execution_bp)
         app.register_blueprint(chart_bp)
         app.register_blueprint(trade_plan_bp)
+        app.register_blueprint(instrument_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise

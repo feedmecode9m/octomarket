@@ -301,7 +301,7 @@ class TradePlanManager:
     def get_plans_for_symbol(self, symbol: str) -> List[Dict[str, Any]]:
         symbol = symbol.upper()
         with self._lock:
-            items = [p for p in self._plans.values() if p["symbol"] == symbol]
+            items = [p for p in self._plans.values() if p["symbol"] == symbol or p.get("instrument_id") == symbol]
             return deepcopy(sorted(items, key=lambda p: p["created_at"], reverse=True))
 
     def update_plan(self, plan_id: str, data: Dict[str, Any]) -> Dict[str, Any]:

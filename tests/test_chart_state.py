@@ -18,6 +18,7 @@ class TestChartState(unittest.TestCase):
         self.assertEqual(s["symbol"], "AAPL")
         self.assertEqual(s["instrument_id"], "AAPL")
         self.assertEqual(s["asset_class"], "STOCK")
+        self.assertIn("session", s)
         self.assertEqual(s["timeframe"], "1d")
         self.assertEqual(s["indicators"], [])
         self.assertEqual(s["drawings"], [])
