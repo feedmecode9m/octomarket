@@ -21,6 +21,7 @@ OctoMarket is an AI-powered trading practice terminal. Learn order execution, st
 
 ## Features
 
+- **Candlestick Terminal** — TradingView-style chart workspace with volume, crosshair, and timeframes
 - **Order Execution** — Market, limit, stop, bracket orders with fill simulation
 - **AI Mentor** — Personalized coaching, mistake detection, adaptive lessons
 - **Strategy Lab** — Natural-language strategy parsing and backtesting
@@ -31,8 +32,8 @@ OctoMarket is an AI-powered trading practice terminal. Learn order execution, st
 ## Quick Start
 
 ```bash
-git clone <repository-url>
-cd Real-Time-Stock-Trading-Simulator
+git clone https://github.com/feedmecode9m/octomarket.git
+cd octomarket
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
