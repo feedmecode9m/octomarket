@@ -1,0 +1,13 @@
+<nav class="om-nav">
+    <a href="/" class="om-nav-brand">
+        <img src="/static/assets/branding/logo.svg" alt="{{ product_name }}">
+        {{ product_name }}
+        <span class="tagline d-none d-md-inline">{{ product_tagline }}</span>
+    </a>
+    <ul class="om-nav-links">
+        {% for item in nav_items %}
+        <li><a href="{{ item.path }}" {% if active_nav == item.id %}class="active"{% endif %}>{{ item.label }}</a></li>
+        {% endfor %}
+    </ul>
+    <span class="om-version">v{{ product_version }}</span>
+</nav>
