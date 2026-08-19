@@ -83,34 +83,42 @@ class TradeJournal:
     def sync_from_trades(self, trades: List[Dict[str, Any]], strategy_name: str = "MA Crossover + RSI") -> int:
         """Sync journal from simulator trade list. Returns number of new entries."""
         added = 0
+
         with self._lock:
             existing_keys = {
-                (e["timestamp"], e["symbol"], e["type"], e["entry_price"])
+                (e.get("trade_time") or e["timestamp"], e["symbol"], e["type"], e["entry_price"])
                 for e in self._entries
             }
 
-        for trade in trades:
-            key = (
-                trade.get("time", ""),
-                trade.get("symbol", "").upper(),
-                trade.get("type", "").lower(),
-                float(trade.get("price", 0)),
-            )
-            if key in existing_keys:
-                continue
+            for trade in trades:
+                trade_time = trade.get("time", "")
+                key = (
+                    trade_time,
+                    trade.get("symbol", "").upper(),
+                    trade.get("type", "").lower(),
+                    float(trade.get("price", 0)),
+                )
+                if key in existing_keys:
+                    continue
 
-            trade_type = trade.get("type", "buy")
-            reason = self._infer_reason(trade_type, strategy_name)
-
-            self.record(
-                symbol=trade.get("symbol", "UNKNOWN"),
-                trade_type=trade_type,
-                entry_price=float(trade.get("price", 0)),
-                quantity=int(trade.get("quantity", 0)),
-                reason=reason,
-                strategy=strategy_name,
-            )
-            added += 1
+                entry = {
+                    "id": str(uuid.uuid4()),
+                    "timestamp": datetime.now().isoformat(),
+                    "trade_time": trade_time,
+                    "symbol": trade.get("symbol", "UNKNOWN").upper(),
+                    "type": trade.get("type", "buy").lower(),
+                    "entry_price": float(trade.get("price", 0)),
+                    "exit_price": None,
+                    "quantity": int(trade.get("quantity", 0)),
+                    "reason": self._infer_reason(trade.get("type", "buy"), strategy_name),
+                    "lesson_learned": None,
+                    "strategy": strategy_name,
+                    "result": None,
+                    "status": "open",
+                }
+                self._entries.append(entry)
+                existing_keys.add(key)
+                added += 1
 
         return added
 

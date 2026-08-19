@@ -323,6 +323,14 @@ class DataFetcher:
     def get_latest_price(self) -> Optional[float]:
         """Get the most recent closing price with error handling."""
         try:
+            if not self.last_data.empty and len(self.last_data) > 0:
+                if "Close" in self.last_data.columns:
+                    latest_price = self.last_data["Close"].iloc[-1]
+                    if pd.isna(latest_price):
+                        logger.warning(f"Latest price is NaN for {self.symbol}")
+                        return None
+                    return float(latest_price)
+
             data = self.get_real_time_data()
             if not data.empty and len(data) > 0:
                 if "Close" in data.columns:
