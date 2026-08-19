@@ -91,20 +91,9 @@ class OrderEngine:
             children = []
 
             if bracket and role == "entry" and side == "buy":
-                if stop_loss:
-                    sl = self.create_order(
-                        symbol=symbol, side="sell", quantity=quantity,
-                        order_type="stop_market", stop_price=stop_loss,
-                        parent_id=order_id, bracket_group_id=group_id, role="stop_loss",
-                    )
-                    children.append(sl)
-                if take_profit:
-                    tp = self.create_order(
-                        symbol=symbol, side="sell", quantity=quantity,
-                        order_type="limit", limit_price=take_profit,
-                        parent_id=order_id, bracket_group_id=group_id, role="take_profit",
-                    )
-                    children.append(tp)
+                children = create_bracket_exits(
+                    self, symbol, quantity, order_id, group_id, stop_loss, take_profit
+                )
 
             result["bracket_orders"] = children
             return result
