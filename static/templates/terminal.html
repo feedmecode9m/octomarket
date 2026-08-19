@@ -29,7 +29,10 @@
         .plan-metrics { background: var(--bg-secondary); padding: 6px; margin-top: 4px; font-size: 0.72rem; border-radius: 4px; }
         .btn-plan { background: #444; color: #fff; border: none; font-weight: 600; width: 100%; font-size: 0.75rem; }
         .btn-plan-review { background: var(--accent-primary); color: #000; }
+        .btn-plan-ai { background: var(--accent-warning); color: #000; }
         .btn-plan-order { background: var(--accent-success); color: #000; margin-top: 4px; }
+        .coach-review-box { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; padding: 6px; margin-top: 6px; font-size: 0.7rem; max-height: 120px; overflow: auto; }
+        .coach-grade { font-size: 1rem; font-weight: 700; color: var(--accent-primary); }
         .bottom-panel { grid-column: 2 / 4; display: flex; flex-direction: column; }
         .watchlist-item { padding: 6px 10px; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; justify-content: space-between; font-size: 0.85rem; }
         .watchlist-item:hover, .watchlist-item.active { background: var(--bg-secondary); }
@@ -205,7 +208,9 @@
                         <textarea class="form-control form-control-sm" id="planThesis" rows="2" placeholder="Breakout above resistance"></textarea>
                     </div>
                     <button class="btn btn-plan btn-plan-review btn-sm mt-1" id="reviewPlanBtn">REVIEW PLAN</button>
+                    <button class="btn btn-plan btn-plan-ai btn-sm mt-1" id="aiReviewPlanBtn">AI REVIEW</button>
                     <button class="btn btn-plan btn-plan-order btn-sm" id="createOrderFromPlanBtn">CREATE ORDER</button>
+                    <div id="coachReviewBox" class="coach-review-box" style="display:none"></div>
                     <div id="planResult" class="small mt-1 text-muted"></div>
                 </div>
             </div>
@@ -542,6 +547,50 @@
             }
         }
 
+        function renderCoachReview(review) {
+            const box = document.getElementById('coachReviewBox');
+            if (!review) { box.style.display = 'none'; return; }
+            const list = (items) => (items || []).map((i) => `<li>${i}</li>`).join('');
+            box.innerHTML = `
+                <div class="coach-grade">Grade: ${review.grade || '—'}</div>
+                ${review.observations?.length ? `<div class="mt-1"><strong>Observations</strong><ul class="mb-0 ps-3">${list(review.observations)}</ul></div>` : ''}
+                ${review.warnings?.length ? `<div class="mt-1 text-warning"><strong>Warnings</strong><ul class="mb-0 ps-3">${list(review.warnings)}</ul></div>` : ''}
+                ${review.questions?.length ? `<div class="mt-1"><strong>Questions</strong><ul class="mb-0 ps-3">${list(review.questions)}</ul></div>` : ''}
+                ${review.risk_notes?.length ? `<div class="mt-1"><strong>Risk</strong><ul class="mb-0 ps-3">${list(review.risk_notes)}</ul></div>` : ''}`;
+            box.style.display = 'block';
+        }
+
+        async function aiReviewTradePlan() {
+            const el = document.getElementById('planResult');
+            try {
+                const plan = await saveOrUpdatePlan();
+                let indicatorPayload = null;
+                const indKeys = getActiveIndicators();
+                if (indKeys.length) {
+                    indicatorPayload = await api(
+                        `/api/chart/${encodeURIComponent(selectedSymbol)}/indicators?timeframe=${encodeURIComponent(selectedTimeframe)}&indicators=${encodeURIComponent(indKeys.join(','))}`
+                    );
+                }
+                const review = await api('/api/ai/chart-review', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        symbol: selectedSymbol,
+                        plan_id: currentPlanId,
+                        trade_plan: plan,
+                        indicator_payload: indicatorPayload,
+                        drawings: terminalChart ? terminalChart.drawings : [],
+                    }),
+                });
+                if (review.error) throw new Error(review.error);
+                renderCoachReview(review);
+                el.textContent = 'AI mentor review complete — no buy/sell recommendation provided.';
+                el.className = 'small mt-1 text-muted';
+            } catch (err) {
+                el.textContent = err.message;
+                el.className = 'small mt-1 text-danger';
+            }
+        }
+
         function setPlanEntryFromPrice(price) {
             document.getElementById('planEntry').value = price;
             const match = findNearestDrawingPrice(price);
@@ -756,6 +805,7 @@
         document.getElementById('indicatorToggles').addEventListener('change', refreshIndicators);
 
         document.getElementById('reviewPlanBtn').onclick = reviewTradePlan;
+        document.getElementById('aiReviewPlanBtn').onclick = aiReviewTradePlan;
         document.getElementById('createOrderFromPlanBtn').onclick = createOrderFromPlan;
         ['planEntry','planStop','planTarget','planQty'].forEach(id => {
             document.getElementById(id).addEventListener('input', async () => {
