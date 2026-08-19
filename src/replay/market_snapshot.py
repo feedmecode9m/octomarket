@@ -158,16 +158,18 @@ def _price_block(candle_payload: Dict[str, Any], recent: Dict[str, Any]) -> Dict
 
 
 def _capture_session_context(instrument_id: str, candle_payload: Dict[str, Any]) -> Dict[str, Any]:
+    from ..replay.replay_session import MODE_LIVE_PAPER, MODE_REPLAY, is_replay_mode
     from ..simulation.session import get_market_session
 
     session = get_market_session()
+    replay = is_replay_mode()
     context: Dict[str, Any] = {
-        "mode": "replay" if session.is_active() and session.has_symbol(instrument_id) else "live",
-        "simulator_active": session.is_active(),
-        "candle_index": session.get_session_index() if session.is_active() else None,
+        "mode": MODE_REPLAY if replay else MODE_LIVE_PAPER,
+        "simulator_active": replay and session.is_active(),
+        "candle_index": session.get_session_index() if replay and session.is_active() else None,
         "session_capped": bool(candle_payload.get("session_capped")),
     }
-    if session.is_active():
+    if replay and session.is_active():
         state = session.get_state()
         context["simulator_state"] = state.get("state")
         context["progress_pct"] = state.get("progress_pct")

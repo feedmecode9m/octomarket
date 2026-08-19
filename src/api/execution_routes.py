@@ -74,6 +74,7 @@ def place_order():
     if not symbol or quantity <= 0:
         return jsonify({"error": "Symbol and quantity required"}), 400
 
+    plan_context = data.get("trade_plan") or {}
     try:
         order = _orders.create_order(
             symbol=symbol,
@@ -82,15 +83,17 @@ def place_order():
             order_type=order_type,
             limit_price=data.get("limit_price") or data.get("price"),
             stop_price=data.get("stop_price"),
-            stop_loss=data.get("stop_loss"),
+            stop_loss=data.get("stop_loss") or plan_context.get("stop_loss"),
             take_profit=data.get("take_profit"),
             bracket=data.get("bracket", False),
             trade_plan={
-                "why_enter": data.get("why_enter", ""),
-                "setup": data.get("setup", ""),
-                "expected_move": data.get("expected_move", ""),
-                "invalidation": data.get("invalidation", ""),
-                "stop_loss": data.get("stop_loss"),
+                "plan_id": plan_context.get("plan_id"),
+                "why_enter": plan_context.get("why_enter") or data.get("why_enter", ""),
+                "setup": plan_context.get("setup") or data.get("setup", ""),
+                "expected_move": plan_context.get("expected_move") or data.get("expected_move", ""),
+                "invalidation": plan_context.get("invalidation") or data.get("invalidation", ""),
+                "stop_loss": plan_context.get("stop_loss") or data.get("stop_loss"),
+                "thesis": plan_context.get("thesis"),
             },
         )
     except ValueError as e:

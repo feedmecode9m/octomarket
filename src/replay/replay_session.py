@@ -1,4 +1,17 @@
-"""Replay session orchestration — instrument-aware controlled time without future leakage."""
+"""Replay session orchestration — instrument-aware controlled time without future leakage.
+
+Architecture (LIVE vs REPLAY):
+
+Shared across modes:
+  instrument model, chart pipeline, trade plans, execution sim, ReplayRecord lifecycle
+
+Mode-specific (not collapsed into one state machine):
+  LIVE PAPER — CandleEngine → MarketDataProvider (full history, no time index)
+  REPLAY     — ReplaySessionManager → MarketSession (step index, hidden futures)
+
+ReplaySessionManager owns replay *mode* and orchestration.
+MarketSession owns replay *time index* only (internal, not a user-facing LIVE mode).
+"""
 
 from __future__ import annotations
 
@@ -24,6 +37,19 @@ from .candle_stream import (
 from .replay_clock import map_session_state, normalize_speed
 from .replay_metrics import ReplayMetrics
 
+MODE_LIVE_PAPER = "live_paper"
+MODE_REPLAY = "replay"
+
+
+def normalize_operating_mode(mode: Optional[str]) -> str:
+    """Normalize API/user mode strings to canonical operating modes."""
+    text = (mode or MODE_LIVE_PAPER).lower()
+    if text in ("live", "live_paper"):
+        return MODE_LIVE_PAPER
+    if text == MODE_REPLAY:
+        return MODE_REPLAY
+    raise ValueError("mode must be 'live_paper' or 'replay'")
+
 
 class ReplaySessionManager:
     """Canonical replay engine backed by MarketSession candle caps."""
@@ -37,7 +63,7 @@ class ReplaySessionManager:
         self._period = "1mo"
         self._speed = "1x"
         self._status = "idle"
-        self._mode = "live"
+        self._mode = MODE_LIVE_PAPER
         self._metrics = ReplayMetrics()
         self._started_at: Optional[str] = None
         self._source_record_id: Optional[str] = None
@@ -81,7 +107,7 @@ class ReplaySessionManager:
             self._period = period
             self._speed = "1x"
             self._status = "running"
-            self._mode = "replay"
+            self._mode = MODE_REPLAY
             self._started_at = datetime.now().isoformat()
             self._source_record_id = source_record_id
             self._metrics = ReplayMetrics()
@@ -161,12 +187,17 @@ class ReplaySessionManager:
             self._metrics = ReplayMetrics()
             self._metrics.bind_symbol(symbol)
             self._status = "idle"
-            self._mode = "live"
+            self._mode = MODE_LIVE_PAPER
             self._instrument_id = None
             self._symbol = None
             self._source_record_id = None
             get_candle_engine().clear_cache()
-            return {"message": "Replay reset", "status": "idle", "mode": "live", "symbol": symbol}
+            return {
+                "message": "Replay reset",
+                "status": "idle",
+                "mode": MODE_LIVE_PAPER,
+                "symbol": symbol,
+            }
 
     def set_speed(self, speed: str) -> Dict[str, Any]:
         with self._lock:
@@ -175,10 +206,8 @@ class ReplaySessionManager:
 
     def set_mode(self, mode: str) -> Dict[str, Any]:
         with self._lock:
-            normalized = (mode or "live").lower()
-            if normalized not in ("live", "replay"):
-                raise ValueError("mode must be 'live' or 'replay'")
-            if normalized == "live" and self._status in ("running", "paused"):
+            normalized = normalize_operating_mode(mode)
+            if normalized == MODE_LIVE_PAPER and self._status in ("running", "paused"):
                 self.reset()
             self._mode = normalized
             return self.get_state()
@@ -263,11 +292,11 @@ class ReplaySessionManager:
 
     def is_active(self) -> bool:
         with self._lock:
-            return self._mode == "replay" and self._status in ("running", "paused")
+            return self._mode == MODE_REPLAY and self._status in ("running", "paused")
 
     def is_replay_mode(self) -> bool:
         with self._lock:
-            return self._mode == "replay" and self._status != "idle"
+            return self._mode == MODE_REPLAY and self._status != "idle"
 
     def _instrument_payload(self, session_key: Optional[str]) -> Optional[Dict[str, Any]]:
         if not session_key:

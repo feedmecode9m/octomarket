@@ -46,7 +46,8 @@ class TestCandleEngine(unittest.TestCase):
         result = self.engine.get_candles("AAPL", respect_session=False)
         self.assertEqual(result["count"], 0)
 
-    def test_session_caps_future_candles(self):
+    @mock.patch("src.replay.replay_session.is_replay_mode", return_value=True)
+    def test_session_caps_future_candles(self, _mock_replay):
         df = _sample_ohlcv(10)
         self.session._data["AAPL"] = df
         self.session._symbols = ["AAPL"]
@@ -60,7 +61,8 @@ class TestCandleEngine(unittest.TestCase):
         self.assertEqual(result["cap_index"], 2)
         self.assertEqual(result["close"][-1], 103.0)
 
-    def test_no_future_leak_full_series_unavailable(self):
+    @mock.patch("src.replay.replay_session.is_replay_mode", return_value=True)
+    def test_no_future_leak_full_series_unavailable(self, _mock_replay):
         df = _sample_ohlcv(10)
         self.session._data["AAPL"] = df
         self.session._symbols = ["AAPL"]
@@ -71,6 +73,22 @@ class TestCandleEngine(unittest.TestCase):
         result = self.engine.get_candles("AAPL", respect_session=True)
         self.assertEqual(result["count"], 1)
         self.assertNotEqual(result["count"], 10)
+
+    @mock.patch("src.replay.replay_session.is_replay_mode", return_value=False)
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
+    def test_live_mode_ignores_active_session_index(self, MockFetcher, _mock_replay):
+        """LIVE browsing must not cap candles even if MarketSession has stale state."""
+        MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(10)
+        df = _sample_ohlcv(10)
+        self.session._data["AAPL"] = df
+        self.session._symbols = ["AAPL"]
+        self.session._state = "open"
+        self.session._index = 2
+        self.session._max_length = 10
+
+        result = self.engine.get_candles("AAPL", respect_session=True)
+        self.assertFalse(result["session_capped"])
+        self.assertEqual(result["count"], 10)
 
     @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_explicit_max_index(self, MockFetcher):

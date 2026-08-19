@@ -37,8 +37,9 @@ class CandleEngine:
         """
         Return OHLCV series for chart rendering.
 
-        When respect_session is True and a session is active for the symbol,
+        When respect_session is True and replay mode is active for the symbol,
         candles are capped at the session current_index (no future leakage).
+        In LIVE mode the provider returns the full series regardless of session state.
         """
         symbol = symbol.upper()
         interval, period = validate_timeframe(
@@ -92,11 +93,19 @@ class CandleEngine:
         period: str,
         respect_session: bool,
     ) -> Optional[pd.DataFrame]:
-        if not respect_session:
-            return None
-        if not self._session.is_active() or not self._session.has_symbol(symbol):
+        if not respect_session or not self._replay_cap_active(symbol):
             return None
         return self._session.get_ohlcv_frame(symbol)
+
+    def _replay_cap_active(self, symbol: str) -> bool:
+        """Only cap candles during REPLAY — not in LIVE browsing."""
+        from ..replay.replay_session import is_replay_mode
+
+        return (
+            is_replay_mode()
+            and self._session.is_active()
+            and self._session.has_symbol(symbol)
+        )
 
     def _resolve_cap_index(
         self,
@@ -106,9 +115,7 @@ class CandleEngine:
     ) -> Optional[int]:
         if max_index is not None:
             return max_index
-        if not respect_session:
-            return None
-        if not self._session.is_active() or not self._session.has_symbol(symbol):
+        if not respect_session or not self._replay_cap_active(symbol):
             return None
         idx = self._session.get_session_index()
         return idx if idx >= 0 else None

@@ -124,7 +124,7 @@ class TestTerminalReplayIntegration(unittest.TestCase):
         self.client.post("/api/session/start", json={"instrument_id": "AAPL"})
         self.client.post("/api/session/close")
         state = self.client.get("/api/session/state").get_json()
-        self.assertEqual(state["mode"], "live")
+        self.assertEqual(state["mode"], "live_paper")
 
     @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_state_includes_replay_metadata(self, MockFetcher):

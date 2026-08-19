@@ -96,8 +96,8 @@ class TestReplayAPI(unittest.TestCase):
         self.client.post("/api/replay/start", json={"instrument_id": "AAPL"})
         reset = self.client.post("/api/replay/reset")
         self.assertEqual(reset.get_json()["status"], "idle")
-        mode = self.client.post("/api/replay/mode", json={"mode": "live"})
-        self.assertEqual(mode.get_json()["mode"], "live")
+        mode = self.client.post("/api/replay/mode", json={"mode": "live_paper"})
+        self.assertEqual(mode.get_json()["mode"], "live_paper")
 
     @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_compare_uses_plan(self, MockFetcher):

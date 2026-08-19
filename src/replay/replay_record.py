@@ -66,7 +66,7 @@ def build_replay_record_from_plan(
     if mode is None:
         from .replay_session import is_replay_mode
 
-        mode = "replay" if is_replay_mode() else "live"
+        mode = "replay" if is_replay_mode() else "live_paper"
     now = datetime.now().isoformat()
     return {
         "id": new_record_id(),

@@ -94,7 +94,9 @@ def _merge_terminal_state(replay_state: dict) -> dict:
     return merged
 
 
-# --- Market Session (terminal → canonical ReplaySessionManager) ---
+# --- Replay session controls (terminal → ReplaySessionManager) ---
+# LIVE mode: no time index; chart/orders use provider + watchlist prices.
+# REPLAY mode: step/pause/close drive MarketSession time index internally.
 
 @terminal_bp.route("/session/start", methods=["POST"])
 def start_session():
