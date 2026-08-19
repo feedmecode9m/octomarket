@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from ..ai_agent.agent import TradingCoachAgent
+from ..ai_agent.chart_coach import get_chart_coach
 from ..ai_agent.execution_coach import get_execution_coach
 from ..ai_agent.trade_journal import get_trade_journal
 from ..learning.lessons import get_all_lessons, get_lesson_by_id
@@ -14,6 +15,7 @@ _coach = TradingCoachAgent()
 _simulator_state = get_simulator_state()
 _journal = get_trade_journal()
 _execution_coach = get_execution_coach()
+_chart_coach = get_chart_coach()
 
 
 @ai_bp.route("/analyze-market", methods=["POST"])
@@ -260,3 +262,90 @@ def post_trade_review():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@ai_bp.route("/chart-review", methods=["POST"])
+def chart_review():
+    """
+    Pre-trade mentor review from structured chart + plan context.
+
+    Does not recommend buy/sell — educational feedback only.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        symbol = (data.get("symbol") or "").upper()
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+
+        trade_plan = data.get("trade_plan")
+        if not trade_plan and data.get("plan_id"):
+            from ..trading.trade_plan import get_trade_plan_manager
+            trade_plan = get_trade_plan_manager().get_plan(data["plan_id"])
+
+        drawings = data.get("drawings")
+        if drawings is None and symbol:
+            from ..charting.drawing_store import get_drawing_store
+            drawings = get_drawing_store().list_drawings(symbol)
+
+        result = _chart_coach.review_chart(
+            symbol=symbol,
+            price=data.get("price"),
+            indicator_payload=data.get("indicators") or data.get("indicator_payload"),
+            drawings=drawings,
+            trade_plan=trade_plan,
+        )
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Chart review failed: {str(e)}"}), 500
+
+
+@ai_bp.route("/trade-review/<plan_id>", methods=["POST"])
+def trade_plan_review(plan_id):
+    """Review a trade plan; optional post-trade execution comparison."""
+    try:
+        from ..trading.trade_plan import get_trade_plan_manager
+        from ..trading.order_engine import get_order_engine
+
+        plan = get_trade_plan_manager().get_plan(plan_id)
+        if not plan:
+            return jsonify({"error": f"Trade plan '{plan_id}' not found"}), 404
+
+        data = request.get_json(silent=True) or {}
+        execution = data.get("execution")
+
+        if not execution and plan.get("order_id"):
+            order = get_order_engine().get_order(plan["order_id"])
+            if order:
+                execution = {
+                    "fill_price": order.get("fill_price"),
+                    "entry_price": order.get("fill_price") or plan.get("entry", {}).get("price"),
+                    "exit_price": data.get("exit_price"),
+                    "pnl": data.get("pnl"),
+                }
+
+        drawings = data.get("drawings")
+        if drawings is None:
+            from ..charting.drawing_store import get_drawing_store
+            drawings = get_drawing_store().list_drawings(plan["symbol"])
+
+        result = _chart_coach.review_trade_plan(
+            trade_plan=plan,
+            price=data.get("price"),
+            indicator_payload=data.get("indicators") or data.get("indicator_payload"),
+            drawings=drawings,
+            execution=execution,
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": f"Trade review failed: {str(e)}"}), 500
+
+
+@ai_bp.route("/coach-history/<symbol>", methods=["GET"])
+def coach_history(symbol):
+    """Return recent coach reviews for symbol."""
+    symbol = symbol.upper()
+    limit = int(request.args.get("limit", 20))
+    history = _chart_coach.get_history(symbol, limit=limit)
+    return jsonify({"symbol": symbol, "history": history, "count": len(history)})
