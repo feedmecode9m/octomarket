@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ module_labels.journal }} — {{ product_name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/assets/branding/theme.css" rel="stylesheet">
+    <style>
+        .content { max-width: 1000px; margin: 2rem auto; padding: 0 1.5rem; }
+        .journal-entry { background: var(--om-bg-tertiary); border: 1px solid var(--om-border); padding: 1rem; margin-bottom: 0.75rem; border-radius: var(--om-radius); font-size: 0.85rem; }
+        .journal-entry .pnl-win { color: var(--om-success); }
+        .journal-entry .pnl-loss { color: var(--om-danger); }
+        .summary-bar { display: flex; gap: 2rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: var(--om-text-muted); }
+        .summary-bar strong { color: var(--om-text); }
+    </style>
+</head>
+<body class="om-body">
+    {% set active_nav = 'journal' %}
+    {% include 'partials/octo_nav.html' %}
+    <div class="content">
+        <h2><i class="fas fa-book"></i> {{ module_labels.journal }}</h2>
+        <p class="text-muted mb-3">Trade reviews, plans, and execution analysis.</p>
+        <div class="summary-bar" id="journalSummary">Loading...</div>
+        <div id="journalEntries">Loading entries...</div>
+    </div>
+    <script>
+        fetch('/api/ai/journal').then(r => r.json()).then(data => {
+            const s = data.summary || {};
+            document.getElementById('journalSummary').innerHTML = `
+                <span>Entries: <strong>${s.total_entries || 0}</strong></span>
+                <span>Closed: <strong>${s.closed_trades || 0}</strong></span>
+                <span>Win Rate: <strong>${s.win_rate || 0}%</strong></span>
+                <span>Total P/L: <strong>$${(s.total_pnl || 0).toFixed(2)}</strong></span>`;
+            const el = document.getElementById('journalEntries');
+            const entries = data.entries || [];
+            if (!entries.length) { el.innerHTML = '<p class="text-muted">No journal entries yet. Trade in the Terminal to build your journal.</p>'; return; }
+            el.innerHTML = entries.slice().reverse().map(e => {
+                const pnl = e.result ? e.result.pnl : null;
+                const pnlClass = pnl >= 0 ? 'pnl-win' : 'pnl-loss';
+                const plan = e.trade_plan || {};
+                return `<div class="journal-entry">
+                    <strong>${e.symbol}</strong> ${e.type.toUpperCase()} × ${e.quantity} @ $${e.entry_price.toFixed(2)}
+                    ${e.exit_price ? ` → $${e.exit_price.toFixed(2)}` : ' (open)'}
+                    ${pnl !== null ? `<span class="${pnlClass} ms-2">$${pnl.toFixed(2)}</span>` : ''}
+                    <div class="text-muted mt-1">${plan.setup || e.reason || ''}</div>
+                    ${e.execution_review ? `<div class="mt-1 small">Review: entry ${e.execution_review.entry_good ? '✓' : '✗'}, risk ${e.execution_review.risk_controlled ? '✓' : '✗'}, exit ${e.execution_review.exit_disciplined ? '✓' : '✗'}</div>` : ''}
+                </div>`;
+            }).join('');
+        });
+    </script>
+</body>
+</html>

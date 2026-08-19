@@ -6,28 +6,30 @@ from src.api.strategy_lab_routes import strategy_lab_bp
 from src.api.mentor_routes import mentor_bp
 from src.api.terminal_routes import terminal_bp
 from src.api.execution_routes import execution_bp
+from src.config.product import get_product, get_product_context
 from src.utils.config import get_config
 import logging
 
 def create_app():
     """Application factory pattern for creating Flask app."""
     try:
-        # Get configuration
         config = get_config()
-        
-        # Validate configuration
+
         if not config.validate():
             raise ValueError("Invalid configuration. Check logs for details.")
-        
-        app = Flask(__name__, 
+
+        app = Flask(__name__,
                     template_folder='static/templates',
                     static_folder='static')
-        
-        # Configure app with validated settings
+
         flask_config = config.get_flask_config()
         app.config.update(flask_config)
-        
-        # Register blueprints
+        app.config["PRODUCT"] = get_product()
+
+        @app.context_processor
+        def inject_product():
+            return get_product_context()
+
         app.register_blueprint(api_bp)
         app.register_blueprint(ai_bp)
         app.register_blueprint(simulation_bp)
@@ -38,21 +40,30 @@ def create_app():
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise
-    
+
     @app.route('/')
-    def index():
-        """Main dashboard route."""
+    def home():
+        """OctoMarket landing dashboard."""
         try:
-            return render_template('index.html')
+            return render_template('home.html')
         except Exception as e:
-            logging.error(f"Error rendering index template: {e}")
+            logging.error(f"Error rendering home: {e}")
+            return render_template('500.html'), 500
+
+    @app.route('/replay')
+    def replay():
+        """Market replay simulator."""
+        try:
+            return render_template('index.html', active_nav='replay')
+        except Exception as e:
+            logging.error(f"Error rendering replay: {e}")
             return render_template('500.html'), 500
 
     @app.route('/strategy-lab')
     def strategy_lab():
         """Strategy Lab page."""
         try:
-            return render_template('strategy_lab.html')
+            return render_template('strategy_lab.html', active_nav='lab')
         except Exception as e:
             logging.error(f"Error rendering strategy lab: {e}")
             return render_template('500.html'), 500
@@ -61,7 +72,7 @@ def create_app():
     def mentor_dashboard():
         """AI Trading Mentor dashboard."""
         try:
-            return render_template('mentor.html')
+            return render_template('mentor.html', active_nav='mentor')
         except Exception as e:
             logging.error(f"Error rendering mentor dashboard: {e}")
             return render_template('500.html'), 500
@@ -70,54 +81,66 @@ def create_app():
     def trading_terminal():
         """Live market practice terminal."""
         try:
-            return render_template('terminal.html')
+            return render_template('terminal.html', active_nav='terminal')
         except Exception as e:
             logging.error(f"Error rendering trading terminal: {e}")
             return render_template('500.html'), 500
-    
+
+    @app.route('/academy')
+    def academy():
+        """Lessons and challenges."""
+        try:
+            return render_template('academy.html', active_nav='academy')
+        except Exception as e:
+            logging.error(f"Error rendering academy: {e}")
+            return render_template('500.html'), 500
+
+    @app.route('/journal')
+    def journal():
+        """Trade journal."""
+        try:
+            return render_template('journal.html', active_nav='journal')
+        except Exception as e:
+            logging.error(f"Error rendering journal: {e}")
+            return render_template('500.html'), 500
+
     @app.errorhandler(404)
     def not_found(error):
-        """Handle 404 errors."""
         logging.warning(f"404 error: {request.url}")
         return render_template('404.html'), 404
-    
+
     @app.errorhandler(500)
     def internal_error(error):
-        """Handle 500 errors."""
         logging.error(f"500 error: {error}")
         return render_template('500.html'), 500
-    
+
     @app.errorhandler(Exception)
     def handle_exception(e):
-        """Handle unhandled exceptions."""
         logging.error(f"Unhandled exception: {e}")
         return render_template('500.html'), 500
-    
+
     return app
 
 if __name__ == '__main__':
     try:
-        # Get configuration
         config = get_config()
-        
-        # Create app
         app = create_app()
-        
-        # Get server settings
+        product = get_product()
+
         host = config.flask.host
         port = config.flask.port
         debug = config.flask.debug
-        
-        print("🚀 Starting Real-Time Stock Trading Simulator...")
-        print(f"📊 Dashboard available at: http://{host}:{port}")
+
+        print(f"🚀 Starting {product['name']} v{product['version']}...")
+        print(f"📊 {product['tagline']}")
+        print(f"🌐 Dashboard: http://{host}:{port}")
         print(f"🔧 Debug mode: {debug}")
-        print(f"📈 Trading symbol: {config.trading.default_symbol}")
+        print(f"📈 Default symbol: {config.trading.default_symbol}")
         print(f"💰 Initial cash: ${config.trading.default_initial_cash:,.2f}")
-        
-        # Start the application
+
         app.run(host=host, port=port, debug=debug)
-        
+
     except Exception as e:
         logging.error(f"Failed to start application: {e}")
         print(f"❌ Failed to start application: {e}")
-        exit(1) 
+        exit(1)

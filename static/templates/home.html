@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ product_name }} — {{ product_tagline }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/assets/branding/theme.css" rel="stylesheet">
+    <style>
+        .hero { padding: 3rem 2rem 2rem; text-align: center; }
+        .hero h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; }
+        .hero h1 span { color: var(--om-accent); }
+        .hero p.tagline { color: var(--om-text-muted); font-size: 1.1rem; margin-top: 0.5rem; }
+        .hero p.sub { color: var(--om-text-muted); font-size: 0.85rem; margin-top: 0.25rem; }
+        .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; padding: 1rem 2rem 3rem; max-width: 1200px; margin: 0 auto; }
+        .om-card .icon { font-size: 1.75rem; color: var(--om-accent); margin-bottom: 0.75rem; }
+        .paper-badge { display: inline-block; background: rgba(0,200,150,0.15); color: var(--om-success); font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 4px; margin-top: 1rem; }
+    </style>
+</head>
+<body class="om-body">
+    {% set active_nav = 'home' %}
+    {% include 'partials/octo_nav.html' %}
+
+    <section class="hero">
+        <h1>Welcome to <span>{{ product_name }}</span></h1>
+        <p class="tagline">{{ product_tagline }}</p>
+        <p class="sub">{{ product_positioning }} — paper money only, no real trades</p>
+    </section>
+
+    <div class="cards-grid">
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-terminal"></i></div>
+            <h3>Practice Trading</h3>
+            <p>TradingView-style order execution with limits, stops, and bracket orders.</p>
+            <a href="/terminal" class="om-btn">Launch Terminal</a>
+        </div>
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-flask"></i></div>
+            <h3>Build Strategies</h3>
+            <p>Parse, backtest, and compare strategies in the strategy lab.</p>
+            <a href="/strategy-lab" class="om-btn">Open Lab</a>
+        </div>
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-user-graduate"></i></div>
+            <h3>Improve Skills</h3>
+            <p>Personalized AI mentor, mistake detection, and adaptive lessons.</p>
+            <a href="/mentor" class="om-btn">Open Mentor</a>
+        </div>
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-chart-line"></i></div>
+            <h3>Replay Markets</h3>
+            <p>Candle-by-candle market replay with paper portfolio simulation.</p>
+            <a href="/replay" class="om-btn">Open Replay</a>
+        </div>
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-graduation-cap"></i></div>
+            <h3>Learn Trading</h3>
+            <p>Structured lessons, challenges, and skill progression tracking.</p>
+            <a href="/academy" class="om-btn">Open Academy</a>
+        </div>
+        <div class="om-card">
+            <div class="icon"><i class="fas fa-book"></i></div>
+            <h3>Review Trades</h3>
+            <p>Trade journal with plans, execution reviews, and P/L history.</p>
+            <a href="/journal" class="om-btn">Open Journal</a>
+        </div>
+    </div>
+
+    <div class="text-center pb-4">
+        <span class="paper-badge"><i class="fas fa-shield-alt"></i> Paper trading only — no broker connections</span>
+    </div>
+</body>
+</html>
