@@ -254,7 +254,7 @@ class TestMentorAPI(unittest.TestCase):
     def test_mentor_page(self):
         resp = self.client.get("/mentor")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"AI Trading Mentor", resp.data)
+        self.assertIn(b"OctoMarket Mentor", resp.data)
 
 
 if __name__ == "__main__":

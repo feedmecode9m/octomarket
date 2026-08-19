@@ -243,7 +243,7 @@ class TestStrategyLabAPI(unittest.TestCase):
     def test_strategy_lab_page(self):
         resp = self.client.get("/strategy-lab")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"Strategy Lab", resp.data)
+        self.assertIn(b"OctoMarket Lab", resp.data)
 
 
 if __name__ == "__main__":
