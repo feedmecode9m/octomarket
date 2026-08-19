@@ -240,9 +240,10 @@ def _normalize_level(level: Any, default_source: Optional[Dict[str, Any]] = None
 class TradePlanManager:
     """In-memory trade plan store and lifecycle."""
 
-    def __init__(self):
+    def __init__(self, record_replay: bool = False):
         self._lock = threading.RLock()
         self._plans: Dict[str, Dict[str, Any]] = {}
+        self._record_replay = record_replay
 
     def create_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
         raw = data.get("symbol") or data.get("instrument_id") or ""
@@ -291,7 +292,11 @@ class TradePlanManager:
 
         with self._lock:
             self._plans[plan["id"]] = deepcopy(plan)
-            return deepcopy(plan)
+            created = deepcopy(plan)
+
+        if self._record_replay:
+            self._record_plan_created(created)
+        return created
 
     def get_plan(self, plan_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -359,7 +364,11 @@ class TradePlanManager:
             plan["status"] = "ORDER_CREATED"
             plan["order_id"] = order_id
             plan["updated_at"] = datetime.now().isoformat()
-            return deepcopy(plan)
+            updated = deepcopy(plan)
+
+        if self._record_replay:
+            self._record_order_submitted(plan_id, order_id)
+        return updated
 
     def mark_completed(self, plan_id: str) -> Dict[str, Any]:
         return self._transition(plan_id, "COMPLETED")
@@ -448,6 +457,18 @@ class TradePlanManager:
             return ", ".join(parts)
         return plan.get("thesis") or "Trade plan"
 
+    def _record_plan_created(self, plan: Dict[str, Any]) -> None:
+        from ..replay.replay_memory import get_replay_memory
+
+        get_replay_memory().on_plan_created(plan)
+
+    def _record_order_submitted(self, plan_id: str, order_id: str) -> None:
+        from ..replay.replay_memory import get_replay_memory
+        from .order_engine import get_order_engine
+
+        order = get_order_engine().get_order(order_id) or {"id": order_id}
+        get_replay_memory().on_order_submitted(plan_id, order_id, order)
+
 
 _manager_instance: Optional[TradePlanManager] = None
 
@@ -455,5 +476,5 @@ _manager_instance: Optional[TradePlanManager] = None
 def get_trade_plan_manager() -> TradePlanManager:
     global _manager_instance
     if _manager_instance is None:
-        _manager_instance = TradePlanManager()
+        _manager_instance = TradePlanManager(record_replay=True)
     return _manager_instance

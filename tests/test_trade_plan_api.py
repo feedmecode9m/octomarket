@@ -28,8 +28,10 @@ def _plan_payload(**overrides):
 class TestTradePlanAPI(unittest.TestCase):
     def setUp(self):
         from app import create_app
+        from src.replay.replay_memory import reset_replay_memory
         from src.trading.trade_plan import get_trade_plan_manager
 
+        reset_replay_memory()
         self.app = create_app()
         self.client = self.app.test_client()
         get_trade_plan_manager().reset()

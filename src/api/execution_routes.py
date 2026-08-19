@@ -1,5 +1,7 @@
 """Order execution API routes — TradingView-style paper trading."""
 
+from typing import Optional
+
 from flask import Blueprint, jsonify, request
 
 from ..ai_agent.execution_coach import get_execution_coach
@@ -43,10 +45,22 @@ def _record_fill_in_journal(order: dict, fill: dict):
             order_id=order["id"],
             trade_plan=order.get("trade_plan"),
         )
+        _record_replay_fill(order, fill, exit_reason=None)
     elif role in ("stop_loss", "take_profit") and order["side"] == "sell":
         parent_id = order.get("parent_id")
         if parent_id:
             _journal.close_by_order_id(parent_id, fill.get("fill_price", 0))
+        _record_replay_fill(order, fill, exit_reason=role)
+
+
+def _record_replay_fill(order: dict, fill: dict, exit_reason: Optional[str]):
+    from ..replay.replay_memory import get_replay_memory
+
+    memory = get_replay_memory()
+    if exit_reason:
+        memory.on_exit_fill(order, fill, exit_reason=exit_reason)
+    else:
+        memory.on_entry_fill(order, fill)
 
 
 @execution_bp.route("/orders", methods=["POST"])
