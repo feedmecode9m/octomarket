@@ -978,6 +978,73 @@
                 </div>
             </div>
 
+            <!-- Practice Mode: Market Replay -->
+            <div class="ai-coach-panel" id="practiceModePanel">
+                <div class="ai-coach-header">
+                    <h4><i class="fas fa-play-circle"></i> Practice Mode — Market Replay</h4>
+                    <span class="trend-badge trend-neutral" id="replayProgress">0%</span>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <p id="replayCandleInfo" class="mb-2">Load replay data to practice candle-by-candle trading decisions.</p>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-success btn-sm" id="loadReplayBtn"><i class="fas fa-download"></i> Load Replay</button>
+                            <button class="btn btn-primary btn-sm" id="replayPlayBtn"><i class="fas fa-play"></i> Play</button>
+                            <button class="btn btn-warning btn-sm" id="replayPauseBtn"><i class="fas fa-pause"></i> Pause</button>
+                            <button class="btn btn-info btn-sm" id="replayStepBtn"><i class="fas fa-step-forward"></i> Step</button>
+                            <button class="btn btn-secondary btn-sm" id="replaySpeedBtn"><i class="fas fa-forward"></i> Speed: 1x</button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Trade Reason (optional)</label>
+                        <input type="text" class="form-control form-control-sm" id="tradeReason" placeholder="Why this trade?">
+                    </div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-md-4">
+                        <button class="btn btn-success w-100" id="manualBuyBtn"><i class="fas fa-arrow-up"></i> BUY</button>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-danger w-100" id="manualSellBtn"><i class="fas fa-arrow-down"></i> SELL</button>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-outline-secondary w-100" id="manualHoldBtn"><i class="fas fa-hand-paper"></i> HOLD</button>
+                    </div>
+                </div>
+                <div class="coach-section">
+                    <h6><i class="fas fa-comment-dots"></i> Pre-Trade Coach</h6>
+                    <p id="preTradeCoach">Make a trade to receive AI coaching before execution.</p>
+                    <small>Confidence: <span id="tradeConfidence">—</span></small>
+                </div>
+            </div>
+
+            <!-- Performance Dashboard -->
+            <div class="row mb-3" id="performanceDashboard">
+                <div class="col-md-2"><div class="stats-card"><h3>Sharpe</h3><p id="perfSharpe">—</p></div></div>
+                <div class="col-md-2"><div class="stats-card"><h3>Profit Factor</h3><p id="perfProfitFactor">—</p></div></div>
+                <div class="col-md-2"><div class="stats-card"><h3>Win Rate</h3><p id="perfWinRate">—</p></div></div>
+                <div class="col-md-2"><div class="stats-card"><h3>P&L</h3><p id="perfPnl">—</p></div></div>
+                <div class="col-md-2"><div class="stats-card"><h3>Drawdown</h3><p id="perfDrawdown">—</p></div></div>
+                <div class="col-md-2"><div class="stats-card"><h3>Trades</h3><p id="perfTrades">—</p></div></div>
+            </div>
+
+            <!-- Challenge Progress -->
+            <div class="ai-coach-panel" id="challengePanel">
+                <div class="ai-coach-header">
+                    <h4><i class="fas fa-trophy"></i> Trading Challenges</h4>
+                    <button class="btn btn-outline-warning btn-sm" id="evaluateChallengesBtn">Evaluate Progress</button>
+                </div>
+                <div id="challengesContainer">Loading challenges...</div>
+            </div>
+
+            <!-- Journal Timeline -->
+            <div class="trades-table mb-3">
+                <h4><i class="fas fa-history"></i> Trading Journal Timeline</h4>
+                <div id="journalTimeline" class="coach-section" style="max-height: 200px; overflow-y: auto;">
+                    <p class="text-muted mb-0">Trades will appear here chronologically.</p>
+                </div>
+            </div>
+
             <!-- Stock Chart -->
             <div class="chart-container">
                 <div class="chart-title">
@@ -1208,11 +1275,7 @@
                     const reviewResp = await fetch('/api/ai/review-trade', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            trade_history: trades || [],
-                            strategy,
-                            outcome: {},
-                        }),
+                        body: JSON.stringify({ trade_history: trades || [], strategy, outcome: {} }),
                     });
 
                     if (reviewResp.ok) {
@@ -1225,6 +1288,139 @@
             } catch (error) {
                 console.error('Coach analysis error:', error);
             }
+        }
+
+        // --- Practice Mode / Replay ---
+        let replaySpeed = 1;
+
+        async function loadReplay() {
+            const symbol = document.getElementById('stockSymbol').value || 'AAPL';
+            const interval = document.getElementById('interval').value;
+            const period = document.getElementById('period').value;
+            const initialCash = parseFloat(document.getElementById('initialCash').value) || 10000;
+            const selectedDate = document.getElementById('selectedDate').value || null;
+
+            const resp = await fetch('/api/simulation/replay/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol, interval, period, initial_cash: initialCash, selected_date: selectedDate }),
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                document.getElementById('replayCandleInfo').textContent =
+                    'Loaded ' + data.candles + ' candles for ' + data.symbol + '. Click Step or Play to begin.';
+                updateReplayStatus();
+                updatePerformanceDashboard();
+            } else {
+                alert(data.error || 'Failed to load replay');
+            }
+        }
+
+        async function updateReplayStatus() {
+            const resp = await fetch('/api/simulation/replay/status');
+            const status = await resp.json();
+            document.getElementById('replayProgress').textContent = status.progress_pct + '%';
+            if (status.current_candle) {
+                const c = status.current_candle;
+                document.getElementById('replayCandleInfo').textContent =
+                    c.timestamp + ' | O:' + c.open.toFixed(2) + ' H:' + c.high.toFixed(2) +
+                    ' L:' + c.low.toFixed(2) + ' C:' + c.close.toFixed(2);
+            }
+        }
+
+        async function replayStep() {
+            await fetch('/api/simulation/replay/step', { method: 'POST' });
+            updateReplayStatus();
+            updatePerformanceDashboard();
+            loadJournalTimeline();
+        }
+
+        async function manualTrade(action) {
+            const symbol = document.getElementById('stockSymbol').value || 'AAPL';
+            const reason = document.getElementById('tradeReason').value;
+
+            const preResp = await fetch('/api/ai/pre-trade-review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, symbol, reason, portfolio: {}, indicators: {} }),
+            });
+            if (preResp.ok) {
+                const pre = await preResp.json();
+                document.getElementById('preTradeCoach').textContent = pre.prompt + ' ' + (pre.guidance.join(' ') || '');
+                document.getElementById('tradeConfidence').textContent = pre.trade_confidence_score + '/100';
+            }
+
+            const resp = await fetch('/api/simulation/trade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, symbol, reason }),
+            });
+            const result = await resp.json();
+            if (result.success !== false) {
+                const postResp = await fetch('/api/ai/post-trade-review', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trade: result }),
+                });
+                if (postResp.ok) {
+                    const post = await postResp.json();
+                    document.getElementById('preTradeCoach').textContent = post.reflection.join(' ');
+                }
+                updatePerformanceDashboard();
+                loadJournalTimeline();
+            }
+        }
+
+        async function updatePerformanceDashboard() {
+            try {
+                const resp = await fetch('/api/performance');
+                if (!resp.ok) return;
+                const p = await resp.json();
+                document.getElementById('perfSharpe').textContent = p.sharpe_ratio;
+                document.getElementById('perfProfitFactor').textContent = p.profit_factor ?? '—';
+                document.getElementById('perfWinRate').textContent = p.win_rate + '%';
+                document.getElementById('perfPnl').textContent = '$' + p.pnl;
+                document.getElementById('perfDrawdown').textContent = p.drawdown + '%';
+                document.getElementById('perfTrades').textContent = p.total_trades;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadChallenges() {
+            const resp = await fetch('/api/challenges');
+            const data = await resp.json();
+            const container = document.getElementById('challengesContainer');
+            container.innerHTML = '';
+            (data.challenges || []).forEach(function(ch) {
+                const prog = ch.progress || {};
+                const div = document.createElement('div');
+                div.className = 'coach-section mb-2';
+                div.innerHTML = '<h6>' + ch.title + '</h6><p>' + ch.description + '</p>' +
+                    '<small>Score: ' + (prog.score || 0) + '/100 | ' +
+                    (prog.completed ? '✅ Completed' : 'In progress') + '</small>';
+                container.appendChild(div);
+            });
+        }
+
+        async function evaluateChallenges() {
+            for (const id of [1, 2, 3]) {
+                await fetch('/api/challenges/' + id + '/evaluate', { method: 'POST' });
+            }
+            loadChallenges();
+        }
+
+        async function loadJournalTimeline() {
+            const resp = await fetch('/api/simulation/journal-timeline');
+            const data = await resp.json();
+            const el = document.getElementById('journalTimeline');
+            if (!data.timeline || data.timeline.length === 0) {
+                el.innerHTML = '<p class="text-muted mb-0">No journal entries yet.</p>';
+                return;
+            }
+            el.innerHTML = data.timeline.map(function(e) {
+                return '<div class="mb-1"><small>' + e.timestamp + '</small> ' +
+                    e.action.toUpperCase() + ' ' + e.quantity + ' ' + e.symbol +
+                    ' @ $' + (e.price || e.fill_price || 0).toFixed(2) + '</div>';
+            }).join('');
         }
 
         async function loadLessons() {
@@ -2007,6 +2203,33 @@
                 document.getElementById('lessonDetailView').style.display = 'none';
             });
             document.getElementById('learningModal').addEventListener('show.bs.modal', loadLessons);
+
+            document.getElementById('loadReplayBtn').addEventListener('click', loadReplay);
+            document.getElementById('replayPlayBtn').addEventListener('click', function() {
+                fetch('/api/simulation/replay/play', { method: 'POST' });
+            });
+            document.getElementById('replayPauseBtn').addEventListener('click', function() {
+                fetch('/api/simulation/replay/pause', { method: 'POST' });
+            });
+            document.getElementById('replayStepBtn').addEventListener('click', replayStep);
+            document.getElementById('replaySpeedBtn').addEventListener('click', function() {
+                replaySpeed = replaySpeed >= 4 ? 1 : replaySpeed * 2;
+                fetch('/api/simulation/replay/speed', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ speed: replaySpeed }),
+                });
+                document.getElementById('replaySpeedBtn').innerHTML =
+                    '<i class="fas fa-forward"></i> Speed: ' + replaySpeed + 'x';
+            });
+            document.getElementById('manualBuyBtn').addEventListener('click', function() { manualTrade('BUY'); });
+            document.getElementById('manualSellBtn').addEventListener('click', function() { manualTrade('SELL'); });
+            document.getElementById('manualHoldBtn').addEventListener('click', function() { manualTrade('HOLD'); });
+            document.getElementById('evaluateChallengesBtn').addEventListener('click', evaluateChallenges);
+
+            loadChallenges();
+            loadJournalTimeline();
+            updatePerformanceDashboard();
             
             // Set max date to today for date picker
             const today = new Date().toISOString().split('T')[0];
