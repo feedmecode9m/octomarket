@@ -1,0 +1,40 @@
+---
+description: Testing requirements for OctoMarket features
+globs: "tests/**"
+alwaysApply: false
+---
+
+# Testing Requirements
+
+## Before finishing a feature
+
+1. Run `source venv/bin/activate && python -m pytest tests/ -q`
+2. Add tests in `tests/test_<area>.py` using `unittest` (project convention).
+3. Mock external I/O: `DataFetcher`, network, yfinance.
+
+## Test patterns
+
+```python
+class TestFeature(unittest.TestCase):
+    def setUp(self):
+        self.engine = OrderEngine()
+
+    @mock.patch("src.simulation.session.DataFetcher")
+    def test_with_mock(self, MockFetcher):
+        MockFetcher.return_value.get_real_time_data.return_value = sample_ohlcv()
+        ...
+```
+
+## API tests
+
+- Use `create_app()` test client; assert status codes and JSON keys.
+- Branding/route tests belong in `tests/test_branding.py`.
+
+## Phase 13+ (browser)
+
+- Add Playwright E2E for terminal flows when plugin is installed (chart, orders, hotkeys).
+
+## Do not
+
+- Skip tests for "UI only" changes that affect routes or templates serving content.
+- Commit with failing tests.

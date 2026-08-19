@@ -1,0 +1,38 @@
+---
+description: Python and Flask patterns for OctoMarket backend
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python / Flask Conventions
+
+## Architecture
+
+- Blueprints under `src/api/` with `/api` prefix; page routes in `app.py`.
+- Singleton getters: `get_order_engine()`, `get_paper_portfolio()`, `get_market_session()`.
+- Product config: `from src.config.product import get_product, get_product_context`.
+- Do not add external LLM calls; AI modules are rule-based coaches.
+
+## Patterns
+
+```python
+# ✅ Blueprint route
+@terminal_bp.route("/watchlist", methods=["GET"])
+def get_watchlist_route():
+    return jsonify(_watchlist.get_all())
+
+# ✅ Thread-safe state
+with self._lock:
+    ...
+```
+
+## Imports
+
+- Prefer extending existing modules over new parallel systems.
+- Keep `src/trading/`, `src/simulation/`, `src/market/` boundaries clear.
+
+## Style
+
+- Type hints on public functions.
+- Minimal comments; code should be self-explanatory.
+- Match existing naming: snake_case, `get_*` factories.

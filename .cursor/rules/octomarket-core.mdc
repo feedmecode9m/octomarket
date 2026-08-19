@@ -1,0 +1,24 @@
+---
+description: OctoMarket core safety and product guardrails — always apply
+alwaysApply: true
+---
+
+# OctoMarket Development Rules
+
+- **Paper trading only.** Never connect to real brokers or execute real money trades.
+- **No autonomous trading.** Do not implement bots that place orders without explicit user action.
+- **Preserve API compatibility.** Do not rename or remove existing `/api/*` endpoints without explicit approval.
+- **Incremental changes.** Prefer small, focused diffs over large rewrites.
+- **Do not replace engines without review.** Extend `order_engine`, `execution`, `paper_portfolio`, and session code; do not rewrite wholesale.
+- **Product identity.** Use `src/config/product.py` for names/taglines; backend module paths stay unchanged.
+- **Educational purpose.** Features teach execution and decision-making, not stock picks or predictions.
+- **Explain before editing.** Summarize files to change and why before multi-file work.
+- **Add tests for features.** Run `pytest` after substantive changes.
+- **Small commits.** One logical change per commit when committing.
+
+## Out of scope
+
+- Broker integrations (Alpaca live, IBKR, etc.)
+- Autonomous AI trading agents
+- "What stock to buy" recommendation systems
+- Crypto trading bots
