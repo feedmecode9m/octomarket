@@ -48,6 +48,17 @@
         }
         .indicator-toggles label { margin: 0; cursor: pointer; color: #aaa; user-select: none; }
         .indicator-toggles input { margin-right: 3px; }
+        .draw-toolbar {
+            display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+            padding: 4px 10px; background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color); font-size: 0.68rem;
+        }
+        .draw-toolbar .draw-btn {
+            background: var(--bg-tertiary); color: #aaa; border: 1px solid var(--border-color);
+            padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.68rem;
+        }
+        .draw-toolbar .draw-btn.active { color: var(--accent-primary); border-color: var(--accent-primary); }
+        .draw-toolbar .draw-btn:hover { color: #fff; }
         .chart-stack { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         #chartDiv { flex: 1; min-height: 120px; cursor: crosshair; }
         .chart-sub { height: 90px; min-height: 70px; border-top: 1px solid var(--border-color); display: none; }
@@ -136,6 +147,14 @@
                 <label><input type="checkbox" data-indicator="RSI"> RSI</label>
                 <label><input type="checkbox" data-indicator="MACD"> MACD</label>
                 <label><input type="checkbox" data-indicator="BB"> BB</label>
+            </div>
+            <div class="draw-toolbar" id="drawToolbar">
+                <span class="text-muted">Draw:</span>
+                <button type="button" class="draw-btn" data-draw-tool="horizontal">Horizontal</button>
+                <button type="button" class="draw-btn" data-draw-tool="trendline">Trend Line</button>
+                <button type="button" class="draw-btn" data-draw-tool="zone">Zone</button>
+                <button type="button" class="draw-btn" data-draw-tool="delete">Delete</button>
+                <button type="button" class="draw-btn" data-draw-tool="">Select Off</button>
             </div>
             <div class="chart-stack">
                 <div id="chartDiv"></div>
@@ -498,6 +517,15 @@
         });
 
         document.getElementById('indicatorToggles').addEventListener('change', refreshIndicators);
+
+        document.getElementById('drawToolbar').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-draw-tool]');
+            if (!btn || !terminalChart) return;
+            document.querySelectorAll('#drawToolbar .draw-btn').forEach((b) => b.classList.remove('active'));
+            const tool = btn.dataset.drawTool || null;
+            if (tool) btn.classList.add('active');
+            terminalChart.setDrawingTool(tool);
+        });
 
         ['orderQty','orderPrice','orderSL','orderTP','orderType','orderSide'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => { reviewOrder(); refreshChartPriceLines(); });

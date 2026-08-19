@@ -79,6 +79,16 @@
         return data;
     }
 
+    function chartTimeToApi(time, timeframe) {
+        if (typeof time === 'number') {
+            return new Date(time * 1000).toISOString();
+        }
+        if (typeof time === 'string' && time.length === 10) {
+            return `${time}T00:00:00`;
+        }
+        return String(time);
+    }
+
     function baseChartOptions(height) {
         return {
             layout: {
@@ -126,9 +136,16 @@
             });
             this.onCrosshair = options.onCrosshair || null;
             this.onClickPrice = options.onClickPrice || null;
+            this.onDrawingsChange = options.onDrawingsChange || null;
             this.symbol = options.symbol || 'AAPL';
             this.timeframe = options.timeframe || '1d';
             this.activeIndicators = new Set(options.activeIndicators || []);
+            this.drawingTool = null;
+            this.drawings = [];
+            this.drawingSeries = {};
+            this.drawingPriceLines = {};
+            this._pendingTrendStart = null;
+            this._pendingZoneTop = null;
             this.chart = null;
             this.rsiChart = null;
             this.macdChart = null;
@@ -193,11 +210,7 @@
             });
 
             this.chart.subscribeClick((param) => {
-                if (!this.onClickPrice || !param.point) return;
-                const price = this.candleSeries.coordinateToPrice(param.point.y);
-                if (price != null && Number.isFinite(price)) {
-                    this.onClickPrice(Number(price.toFixed(2)));
-                }
+                this._handleChartClick(param);
             });
 
             this._resizeObserver = new ResizeObserver(() => this.resize());
@@ -349,6 +362,183 @@
             this._applyMainScaleMargins();
         }
 
+        setDrawingTool(tool) {
+            this.drawingTool = tool || null;
+            this._pendingTrendStart = null;
+            this._pendingZoneTop = null;
+        }
+
+        async _handleChartClick(param) {
+            if (!param.point) return;
+            const price = this.candleSeries.coordinateToPrice(param.point.y);
+            if (price == null || !Number.isFinite(price)) return;
+
+            if (this.drawingTool === 'delete') {
+                await this._deleteNearestDrawing(price);
+                return;
+            }
+            if (this.drawingTool === 'horizontal') {
+                await this.createDrawing({
+                    type: 'horizontal',
+                    price: Number(price.toFixed(2)),
+                    label: 'Level',
+                    color: '#ff4757',
+                });
+                return;
+            }
+            if (this.drawingTool === 'trendline') {
+                const point = {
+                    time: chartTimeToApi(param.time, this.timeframe),
+                    price: Number(price.toFixed(2)),
+                };
+                if (!this._pendingTrendStart) {
+                    this._pendingTrendStart = point;
+                    return;
+                }
+                await this.createDrawing({
+                    type: 'trendline',
+                    start: this._pendingTrendStart,
+                    end: point,
+                    label: 'Trend',
+                    color: '#00d4ff',
+                });
+                this._pendingTrendStart = null;
+                return;
+            }
+            if (this.drawingTool === 'zone') {
+                const level = Number(price.toFixed(2));
+                if (this._pendingZoneTop == null) {
+                    this._pendingZoneTop = level;
+                    return;
+                }
+                const top = Math.max(this._pendingZoneTop, level);
+                const bottom = Math.min(this._pendingZoneTop, level);
+                await this.createDrawing({
+                    type: 'zone',
+                    top,
+                    bottom,
+                    label: 'Zone',
+                    color: 'rgba(0,212,255,0.15)',
+                });
+                this._pendingZoneTop = null;
+                return;
+            }
+            if (this.onClickPrice) {
+                this.onClickPrice(Number(price.toFixed(2)));
+            }
+        }
+
+        async loadDrawings() {
+            const url = `/api/chart/${encodeURIComponent(this.symbol)}/drawings`;
+            const payload = await this.fetchJson(url);
+            this.drawings = Array.isArray(payload) ? payload : [];
+            this.renderDrawings();
+            if (this.onDrawingsChange) this.onDrawingsChange(this.drawings);
+            return this.drawings;
+        }
+
+        async createDrawing(data) {
+            const url = `/api/chart/${encodeURIComponent(this.symbol)}/drawings`;
+            const resp = await this.fetchJson(url, {
+                method: 'POST',
+                body: JSON.stringify(data),
+            });
+            if (resp.error) throw new Error(resp.error);
+            await this.loadDrawings();
+            return resp.drawing;
+        }
+
+        async deleteDrawing(id) {
+            const url = `/api/chart/${encodeURIComponent(this.symbol)}/drawings/${encodeURIComponent(id)}`;
+            const resp = await this.fetchJson(url, { method: 'DELETE' });
+            if (resp.error) throw new Error(resp.error);
+            await this.loadDrawings();
+        }
+
+        async _deleteNearestDrawing(clickPrice) {
+            if (!this.drawings.length) return;
+            let best = null;
+            let bestDist = Infinity;
+            this.drawings.forEach((d) => {
+                let dist = Infinity;
+                if (d.type === 'horizontal') dist = Math.abs(d.price - clickPrice);
+                else if (d.type === 'zone') {
+                    const mid = (d.top + d.bottom) / 2;
+                    dist = Math.abs(mid - clickPrice);
+                } else if (d.type === 'trendline') {
+                    const mid = (d.start.price + d.end.price) / 2;
+                    dist = Math.abs(mid - clickPrice);
+                }
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = d;
+                }
+            });
+            if (best && bestDist < clickPrice * 0.05) {
+                await this.deleteDrawing(best.id);
+            }
+        }
+
+        _clearDrawingRender() {
+            Object.values(this.drawingSeries).forEach((series) => {
+                try { this.chart.removeSeries(series); } catch (_) { /* ignore */ }
+            });
+            this.drawingSeries = {};
+            Object.values(this.drawingPriceLines).forEach((lines) => {
+                lines.forEach((line) => {
+                    try { this.candleSeries.removePriceLine(line); } catch (_) { /* ignore */ }
+                });
+            });
+            this.drawingPriceLines = {};
+        }
+
+        renderDrawings() {
+            if (!this.chart || !this.candleSeries) return;
+            this._clearDrawingRender();
+            this.drawings.forEach((d) => {
+                if (d.type === 'horizontal') {
+                    const line = this.candleSeries.createPriceLine({
+                        price: d.price,
+                        color: d.color || '#ff4757',
+                        lineWidth: 2,
+                        axisLabelVisible: true,
+                        title: d.label || 'Level',
+                    });
+                    this.drawingPriceLines[d.id] = [line];
+                } else if (d.type === 'zone') {
+                    const topLine = this.candleSeries.createPriceLine({
+                        price: d.top,
+                        color: '#00d4ff',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        axisLabelVisible: true,
+                        title: d.label ? `${d.label} top` : 'Zone top',
+                    });
+                    const bottomLine = this.candleSeries.createPriceLine({
+                        price: d.bottom,
+                        color: '#00d4ff',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        axisLabelVisible: true,
+                        title: d.label ? `${d.label} bottom` : 'Zone bottom',
+                    });
+                    this.drawingPriceLines[d.id] = [topLine, bottomLine];
+                } else if (d.type === 'trendline') {
+                    const series = this.chart.addLineSeries({
+                        color: d.color || '#00d4ff',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    });
+                    series.setData([
+                        { time: toChartTime(d.start.time, this.timeframe), value: d.start.price },
+                        { time: toChartTime(d.end.time, this.timeframe), value: d.end.price },
+                    ]);
+                    this.drawingSeries[d.id] = series;
+                }
+            });
+        }
+
         async syncState(patch) {
             await this.fetchJson('/api/chart/state', {
                 method: 'PUT',
@@ -444,6 +634,7 @@
                 this.candleSeries.setData([]);
                 this.volumeSeries.setData([]);
                 await this.loadIndicators();
+                await this.loadDrawings();
                 return payload;
             }
 
@@ -451,10 +642,12 @@
             this.volumeSeries.setData(volume);
             this.chart.timeScale().fitContent();
             await this.loadIndicators();
+            await this.loadDrawings();
             return payload;
         }
 
         destroy() {
+            this._clearDrawingRender();
             if (this._resizeObserver) {
                 this._resizeObserver.disconnect();
                 this._resizeObserver = null;
