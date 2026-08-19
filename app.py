@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request
 from src.api.routes import api_bp
 from src.api.ai_routes import ai_bp
+from src.api.simulation_routes import simulation_bp
 from src.utils.config import get_config
 import logging
 
@@ -25,6 +26,7 @@ def create_app():
         # Register blueprints
         app.register_blueprint(api_bp)
         app.register_blueprint(ai_bp)
+        app.register_blueprint(simulation_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise
