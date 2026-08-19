@@ -11,6 +11,7 @@ from .replay_record import (
     apply_order_submitted,
     build_replay_record_from_plan,
 )
+from .replay_scoring import apply_scoring, score_replay_record
 from .replay_store import ReplayStore, get_replay_store
 
 
@@ -71,6 +72,19 @@ class ReplayMemory:
         if record_id:
             return self._store.get(record_id)
         return self._store.get_by_plan_id(plan_id)
+
+    def score_record(self, record_id: str) -> Optional[Dict[str, Any]]:
+        record = self._store.get(record_id)
+        if not record:
+            return None
+        updated = apply_scoring(record)
+        return self._store.save(updated)
+
+    def score_by_plan_id(self, plan_id: str) -> Optional[Dict[str, Any]]:
+        record = self.get_by_plan_id(plan_id)
+        if not record:
+            return None
+        return self.score_record(record["id"])
 
     def reset(self) -> None:
         with self._lock:

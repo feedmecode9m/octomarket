@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from ..replay.comparison import compare_plan_to_outcome
 from ..replay.replay_memory import get_replay_memory
+from ..replay.replay_scoring import score_replay_record
 from ..replay.replay_session import get_replay_session
 from ..trading.trade_plan import get_trade_plan_manager
 
@@ -124,9 +125,39 @@ def replay_compare():
         execution.setdefault("record_status", record.get("status"))
 
     comparison = compare_plan_to_outcome(plan, metrics, execution)
+
+    scoring = None
+    if record:
+        scoring = record.get("scoring") or score_replay_record(record)
+    elif plan.get("id"):
+        scored = _memory.score_by_plan_id(plan["id"])
+        if scored:
+            scoring = scored.get("scoring")
+
     return jsonify({
         "comparison": comparison,
+        "scoring": scoring,
         "metrics": metrics,
         "execution": execution,
         "record": record,
     })
+
+
+@replay_bp.route("/score", methods=["POST"])
+def replay_score():
+    """Compute deterministic quality score for a replay record."""
+    data = request.get_json(silent=True) or {}
+    record_id = data.get("record_id")
+    plan_id = data.get("plan_id")
+
+    if plan_id:
+        record = _memory.score_by_plan_id(plan_id)
+    elif record_id:
+        record = _memory.score_record(record_id)
+    else:
+        return jsonify({"error": "record_id or plan_id required"}), 400
+
+    if not record:
+        return jsonify({"error": "Replay record not found"}), 404
+
+    return jsonify({"record_id": record["id"], "scoring": record.get("scoring"), "record": record})
