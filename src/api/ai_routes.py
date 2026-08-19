@@ -183,6 +183,21 @@ def coach_summary():
         return jsonify({"error": f"Coach summary failed: {str(e)}"}), 500
 
 
+@ai_bp.route("/review-strategy", methods=["POST"])
+def review_strategy():
+    """Review a strategy and its backtest results."""
+    try:
+        data = request.get_json(silent=True) or {}
+        strategy = data.get("strategy")
+        backtest_results = data.get("backtest_results")
+        if not strategy or not backtest_results:
+            return jsonify({"error": "strategy and backtest_results are required"}), 400
+        result = _coach.review_strategy(strategy, backtest_results)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @ai_bp.route("/pre-trade-review", methods=["POST"])
 def pre_trade_review():
     """Review a planned trade before execution."""

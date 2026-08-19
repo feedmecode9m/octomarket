@@ -452,3 +452,91 @@ class TradingCoachAgent:
             score -= 5
 
         return max(0, min(100, score))
+
+    def review_strategy(
+        self,
+        strategy: Dict[str, Any],
+        backtest_results: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Review a strategy design and its backtest results."""
+        name = strategy.get("name", "Your Strategy")
+        rules = strategy.get("rules", [])
+
+        strengths = []
+        weaknesses = []
+        risks = []
+        suggestions = []
+
+        win_rate = backtest_results.get("win_rate", 0)
+        drawdown = backtest_results.get("max_drawdown", 0)
+        total_return = backtest_results.get("total_return_pct", 0)
+        sharpe = backtest_results.get("sharpe_ratio", 0)
+        total_trades = backtest_results.get("total_trades", 0)
+        bc = backtest_results.get("benchmark_comparison", {})
+
+        if win_rate >= 50:
+            strengths.append(f"Win rate of {win_rate:.0f}% shows decent entry timing.")
+        if total_return > 0:
+            strengths.append(f"Positive return of {total_return:.1f}% over the backtest period.")
+        if drawdown < 5:
+            strengths.append(f"Low drawdown ({drawdown:.1f}%) — good risk control built in.")
+        if sharpe > 0.5:
+            strengths.append(f"Sharpe ratio of {sharpe:.2f} indicates acceptable risk-adjusted returns.")
+        if len(rules) >= 2:
+            strengths.append("Multi-rule strategy provides both entry and exit logic.")
+
+        if win_rate >= 50 and drawdown > 10:
+            weaknesses.append("Your strategy wins often but has large drawdowns — winners may be too small vs losers.")
+        if bc.get("beat_benchmark") is False:
+            alpha = bc.get("alpha", 0)
+            weaknesses.append(f"Your strategy performs worse than holding the stock (underperforms by {abs(alpha):.1f}%).")
+        if total_trades == 0:
+            weaknesses.append("No trades were generated — rules may be too strict or conflicting.")
+        if total_trades > 50:
+            weaknesses.append("Very high trade count — overtrading erodes returns after commissions.")
+        if win_rate < 40 and total_trades >= 5:
+            weaknesses.append(f"Low win rate ({win_rate:.0f}%) — reconsider entry filters.")
+
+        if drawdown > 10:
+            risks.append(f"Maximum drawdown of {drawdown:.1f}% exceeds prudent 10% threshold.")
+        if not strategy.get("stop_loss"):
+            risks.append("No stop loss defined — a single bad trade could devastate the account.")
+        indicators = {r.get("indicator") for r in rules}
+        if len(indicators) == 1:
+            risks.append("Single-indicator strategy — vulnerable when that indicator fails in current regime.")
+
+        if drawdown > 8:
+            suggestions.append("Add or tighten stop-loss rules (1-2% per trade).")
+        if bc.get("beat_benchmark") is False:
+            suggestions.append("Consider adding a trend filter (e.g., only buy when price is above 200-day MA).")
+        if total_trades < 3:
+            suggestions.append("Relax entry conditions or test on a longer historical period.")
+        if "RSI" not in indicators and "SMA" in indicators:
+            suggestions.append("Add RSI filter to avoid buying in overbought conditions.")
+        suggestions.append("Compare against library templates in the Strategy Lab before going live.")
+
+        difficulty = self._strategy_difficulty(rules, backtest_results)
+
+        if not strengths:
+            strengths.append("Strategy is a learning starting point — iterate based on backtest feedback.")
+        if not weaknesses:
+            weaknesses.append("No major weaknesses detected — validate on different time periods.")
+
+        return {
+            "strategy_name": name,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "risks": risks,
+            "improvement_suggestions": suggestions,
+            "difficulty_level": difficulty,
+        }
+
+    def _strategy_difficulty(self, rules: List[Dict[str, Any]], backtest: Dict[str, Any]) -> str:
+        indicators = {r.get("indicator", "") for r in rules}
+        if len(indicators) >= 3 or "MACD" in indicators:
+            return "advanced"
+        if len(rules) >= 2 or "VOLATILITY" in indicators:
+            return "intermediate"
+        if backtest.get("total_trades", 0) < 3:
+            return "beginner (needs more data)"
+        return "beginner"
