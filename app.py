@@ -5,6 +5,7 @@ from src.api.simulation_routes import simulation_bp
 from src.api.strategy_lab_routes import strategy_lab_bp
 from src.api.mentor_routes import mentor_bp
 from src.api.terminal_routes import terminal_bp
+from src.api.chart_routes import chart_bp
 from src.api.execution_routes import execution_bp
 from src.config.product import get_product, get_product_context
 from src.utils.config import get_config
@@ -37,6 +38,7 @@ def create_app():
         app.register_blueprint(mentor_bp)
         app.register_blueprint(terminal_bp)
         app.register_blueprint(execution_bp)
+        app.register_blueprint(chart_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise

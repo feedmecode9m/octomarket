@@ -130,6 +130,27 @@ class MarketSession:
             prices = subset["Close"].tolist()
             return {"timestamps": timestamps, "prices": [float(p) for p in prices]}
 
+    def is_active(self) -> bool:
+        with self._lock:
+            return self._state != "idle"
+
+    def has_symbol(self, symbol: str) -> bool:
+        symbol = symbol.upper()
+        with self._lock:
+            return symbol in self._data and not self._data[symbol].empty
+
+    def get_ohlcv_frame(self, symbol: str) -> Optional[pd.DataFrame]:
+        symbol = symbol.upper()
+        with self._lock:
+            df = self._data.get(symbol)
+            if df is None or df.empty:
+                return None
+            return df.copy()
+
+    def get_session_index(self) -> int:
+        with self._lock:
+            return self._index
+
 
 _session_instance: Optional[MarketSession] = None
 
