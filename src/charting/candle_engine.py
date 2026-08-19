@@ -5,8 +5,7 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 
-from ..core.data_fetcher import DataFetcher
-from ..market.symbol_map import data_feed_symbol
+from ..market.data_provider import MarketDataProvider, get_market_data_provider
 from ..simulation.session import MarketSession, get_market_session
 from .timeframe import validate_timeframe
 
@@ -17,9 +16,14 @@ REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 class CandleEngine:
     """Load and slice OHLCV candles for the chart workspace."""
 
-    def __init__(self, session: Optional[MarketSession] = None):
+    def __init__(
+        self,
+        session: Optional[MarketSession] = None,
+        provider: Optional[MarketDataProvider] = None,
+    ):
         self._lock = threading.RLock()
         self._session = session or get_market_session()
+        self._provider = provider or get_market_data_provider()
         self._cache: Dict[str, pd.DataFrame] = {}
 
     def get_candles(
@@ -73,10 +77,8 @@ class CandleEngine:
             if cache_key in self._cache:
                 return self._cache[cache_key].copy()
 
-        fetch_symbol = data_feed_symbol(symbol)
-        fetcher = DataFetcher(symbol=fetch_symbol, interval=interval, period=period)
-        df = fetcher.get_real_time_data()
-        if df.empty or not self._valid_ohlcv(df):
+        df = self._provider.candles(symbol, interval, period=period)
+        if df.empty:
             return pd.DataFrame()
 
         with self._lock:

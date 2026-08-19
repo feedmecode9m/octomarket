@@ -98,7 +98,7 @@ class TestChartStateMultiAsset(unittest.TestCase):
         self.assertIn("session", s)
         self.assertFalse(s["session"]["is_24h"])
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_api_state_after_futures_switch(self, MockFetcher):
         import pandas as pd
         from app import create_app

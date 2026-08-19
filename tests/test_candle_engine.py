@@ -31,7 +31,7 @@ class TestCandleEngine(unittest.TestCase):
         self.session = MarketSession()
         self.engine = CandleEngine(self.session)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_ohlcv_retrieval(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(5)
         result = self.engine.get_candles("AAPL", interval="1d", period="5d", respect_session=False)
@@ -40,7 +40,7 @@ class TestCandleEngine(unittest.TestCase):
         self.assertEqual(len(result["volume"]), 5)
         self.assertEqual(result["close"][-1], 105.0)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_empty_data(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame()
         result = self.engine.get_candles("AAPL", respect_session=False)
@@ -72,13 +72,13 @@ class TestCandleEngine(unittest.TestCase):
         self.assertEqual(result["count"], 1)
         self.assertNotEqual(result["count"], 10)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_explicit_max_index(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(8)
         result = self.engine.get_candles("AAPL", max_index=3, respect_session=False)
         self.assertEqual(result["count"], 4)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_api_candles(self, MockFetcher):
         from app import create_app
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(6)
@@ -91,7 +91,7 @@ class TestCandleEngine(unittest.TestCase):
         self.assertIn("open", data)
         self.assertIn("high", data)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_api_404_no_data(self, MockFetcher):
         from app import create_app
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame()

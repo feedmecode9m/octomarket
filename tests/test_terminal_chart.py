@@ -101,7 +101,7 @@ class TestTerminalChartAPIIntegration(unittest.TestCase):
         self.client = self.app.test_client()
         get_chart_state().reset()
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_symbol_and_timeframe_flow(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame(
             {
@@ -127,7 +127,7 @@ class TestTerminalChartAPIIntegration(unittest.TestCase):
         self.assertEqual(len(bars["candles"]), data["count"])
         self.assertEqual(len(bars["volume"]), data["count"])
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_timeframe_switch_updates_state(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame(
             {

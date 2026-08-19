@@ -43,7 +43,7 @@ class TestIndicatorAPI(unittest.TestCase):
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=VWAP")
         self.assertEqual(resp.status_code, 400)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_sma20_indicator_payload(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(25)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=SMA20")
@@ -56,7 +56,7 @@ class TestIndicatorAPI(unittest.TestCase):
         self.assertEqual(sma["period"], 20)
         self.assertEqual(len(sma["values"]), 25)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_rsi_indicator_payload(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(30)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=RSI")
@@ -65,7 +65,7 @@ class TestIndicatorAPI(unittest.TestCase):
         self.assertEqual(rsi["indicator"], "RSI")
         self.assertEqual(rsi["period"], 14)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_macd_indicator_payload(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(40)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=MACD")
@@ -76,7 +76,7 @@ class TestIndicatorAPI(unittest.TestCase):
         self.assertIn("signal", macd)
         self.assertIn("histogram", macd)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_bollinger_indicator_payload(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(30)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=BB")
@@ -87,7 +87,7 @@ class TestIndicatorAPI(unittest.TestCase):
         self.assertIn("middle", bb)
         self.assertIn("lower", bb)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_multiple_indicators(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(35)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=SMA20,EMA9,RSI,MACD,BB")
@@ -96,7 +96,7 @@ class TestIndicatorAPI(unittest.TestCase):
         for key in ("SMA20", "EMA9", "RSI", "MACD", "BB"):
             self.assertIn(key, indicators)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_ema_presets_via_api(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(50)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=EMA9,EMA20,EMA50,EMA200")
@@ -105,14 +105,14 @@ class TestIndicatorAPI(unittest.TestCase):
         self.assertEqual(indicators["EMA9"]["period"], 9)
         self.assertEqual(indicators["EMA200"]["period"], 200)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_timeframe_query_param(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = _sample_ohlcv(20)
         resp = self.client.get("/api/chart/AAPL/indicators?indicators=RSI&timeframe=1d")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["timeframe"], "1d")
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_no_data_returns_404(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame()
         resp = self.client.get("/api/chart/ZZZZ/indicators?indicators=RSI&respect_session=false")

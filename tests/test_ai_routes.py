@@ -40,7 +40,7 @@ class TestAIChartCoachRoutes(unittest.TestCase):
         resp = self.client.post("/api/ai/chart-review", json={})
         self.assertEqual(resp.status_code, 400)
 
-    @mock.patch("src.charting.candle_engine.DataFetcher")
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
     def test_chart_review_with_plan(self, MockFetcher):
         MockFetcher.return_value.get_real_time_data.return_value = pd.DataFrame()
         self.client.post("/api/chart/AAPL/drawings", json={
