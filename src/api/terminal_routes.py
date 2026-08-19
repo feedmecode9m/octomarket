@@ -10,6 +10,7 @@ from ..market.watchlist import get_watchlist
 from ..simulation.events import get_event_engine
 from ..simulation.paper_portfolio import get_paper_portfolio
 from ..simulation.session import get_market_session
+from ..api.execution_routes import process_session_fills
 
 terminal_bp = Blueprint("terminal", __name__, url_prefix="/api")
 
@@ -97,6 +98,10 @@ def start_session():
     try:
         _portfolio.reset(initial_cash)
         _events.clear()
+        from ..trading.order_engine import get_order_engine
+        from ..ai_agent.trade_journal import get_trade_journal
+        get_order_engine().clear()
+        get_trade_journal().clear()
         state = _session.start(symbols, initial_cash, period, interval)
         return jsonify({"message": "Session started", "state": state})
     except ValueError as e:
@@ -110,6 +115,11 @@ def step_session():
         return jsonify(state), 400
 
     triggered = []
+    candles = state.get("candles", {})
+    if candles:
+        fill_results = process_session_fills(candles)
+        state["fills"] = fill_results
+
     for symbol, price in state.get("prices", {}).items():
         prev = state.get("prev_closes", {}).get(symbol, price)
         _watchlist.update_price(symbol, price, prev)
