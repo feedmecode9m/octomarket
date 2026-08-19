@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from ..replay.comparison import compare_plan_to_outcome
 from ..replay.replay_memory import get_replay_memory
-from ..replay.replay_scoring import score_replay_record
+from ..replay.scoring_service import score_replay_record
 from ..replay.replay_session import get_replay_session
 from ..trading.trade_plan import get_trade_plan_manager
 

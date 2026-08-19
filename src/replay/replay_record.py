@@ -153,9 +153,6 @@ def apply_exit_fill(
     record["execution"]["fills"].append({"role": exit_reason, **exit_payload})
     record["outcome"] = calculate_outcome(record, exit_price=fill_price, exit_reason=exit_reason)
     record["metadata"]["finalized_at"] = datetime.now().isoformat()
-    from .replay_scoring import apply_scoring
-
-    record = apply_scoring(record)
     update_record_timestamp(record)
     return record
 

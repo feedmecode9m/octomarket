@@ -1,116 +1,20 @@
-"""Deterministic trade quality scoring from ReplayRecord artifacts."""
+"""Deterministic dimension scorers used by the scoring service."""
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from ..market.asset_class import AssetClass
 
-SCORING_SCHEMA_VERSION = 1
-
 DIMENSION_WEIGHTS = {
-    "trend_alignment": 0.20,
-    "session_quality": 0.15,
-    "risk_reward": 0.20,
-    "entry_quality": 0.15,
-    "volatility_context": 0.10,
-    "execution_quality": 0.20,
+    "trend_alignment": 0.22,
+    "session_quality": 0.18,
+    "volatility_context": 0.15,
+    "risk_reward": 0.25,
+    "entry_quality": 0.20,
+    "execution_quality": 0.10,
+    "outcome_result": 0.10,
 }
-
-
-def score_replay_record(record: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Score a replay record using only decision-time snapshot + plan + outcome.
-
-    Does not use future data beyond what is stored on the record.
-    """
-    plan = record.get("trade_intent") or {}
-    market = record.get("market") or {}
-    snapshot = (record.get("decision_context") or {}).get("market_snapshot") or {}
-    outcome = record.get("outcome") or {}
-    execution = record.get("execution") or {}
-    asset_class = market.get("asset_class", AssetClass.STOCK.value)
-    direction = (plan.get("direction") or "LONG").upper()
-
-    dimensions: Dict[str, Dict[str, Any]] = {
-        "trend_alignment": _score_trend_alignment(snapshot, direction),
-        "session_quality": _score_session_quality(market, snapshot, asset_class),
-        "risk_reward": _score_risk_reward(plan, direction, asset_class),
-        "entry_quality": _score_entry_quality(plan, snapshot, execution),
-        "volatility_context": _score_volatility_context(plan, snapshot, asset_class, direction),
-        "execution_quality": _score_execution_quality(plan, outcome, execution, record.get("status")),
-    }
-
-    total_score, completeness = _aggregate_score(dimensions, record.get("status"))
-    reasons_positive, reasons_negative = _collect_reasons(dimensions)
-
-    return {
-        "total_score": total_score,
-        "grade": _grade_from_score(total_score),
-        "dimensions": dimensions,
-        "reasons_positive": reasons_positive,
-        "reasons_negative": reasons_negative,
-        "completeness": completeness,
-        "asset_class": asset_class,
-        "instrument_id": market.get("instrument_id"),
-        "continuous_id": market.get("continuous_id"),
-        "scored_at": datetime.now().isoformat(),
-        "schema_version": SCORING_SCHEMA_VERSION,
-    }
-
-
-def apply_scoring(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute scoring and attach to a replay record copy."""
-    updated = dict(record)
-    updated["scoring"] = score_replay_record(record)
-    if updated.get("metadata"):
-        updated["metadata"] = dict(updated["metadata"])
-        updated["metadata"]["updated_at"] = datetime.now().isoformat()
-    return updated
-
-
-def _aggregate_score(dimensions: Dict[str, Dict[str, Any]], status: Optional[str]) -> Tuple[int, str]:
-    weighted_sum = 0.0
-    weight_total = 0.0
-    for name, weight in DIMENSION_WEIGHTS.items():
-        dim = dimensions.get(name) or {}
-        if dim.get("skipped"):
-            continue
-        score = dim.get("score")
-        if score is None:
-            continue
-        weighted_sum += float(score) * weight
-        weight_total += weight
-
-    if weight_total <= 0:
-        return 0, _completeness(status, False)
-
-    total = int(round(weighted_sum / weight_total))
-    total = max(0, min(100, total))
-    has_execution = not (dimensions.get("execution_quality") or {}).get("skipped", True)
-    return total, _completeness(status, has_execution)
-
-
-def _completeness(status: Optional[str], has_execution: bool) -> str:
-    if status == "closed" and has_execution:
-        return "full"
-    if status in ("filled", "submitted", "planned"):
-        return "partial"
-    return "decision_only"
-
-
-def _collect_reasons(dimensions: Dict[str, Dict[str, Any]]) -> Tuple[List[str], List[str]]:
-    positive: List[str] = []
-    negative: List[str] = []
-    for dim in dimensions.values():
-        for reason in dim.get("reasons_positive") or []:
-            if reason not in positive:
-                positive.append(reason)
-        for reason in dim.get("reasons_negative") or []:
-            if reason not in negative:
-                negative.append(reason)
-    return positive, negative
 
 
 def _score_trend_alignment(snapshot: Dict[str, Any], direction: str) -> Dict[str, Any]:
@@ -137,6 +41,8 @@ def _score_trend_alignment(snapshot: Dict[str, Any], direction: str) -> Dict[str
         else:
             score -= 15
             reasons_neg.append("Short plan taken above SMA20 — weak trend alignment.")
+    else:
+        reasons_neg.append("Trend alignment unknown — SMA20 or price missing from snapshot.")
 
     if rsi is not None:
         if direction == "LONG":
@@ -156,6 +62,8 @@ def _score_trend_alignment(snapshot: Dict[str, Any], direction: str) -> Dict[str
             elif rsi < 30:
                 score -= 10
                 reasons_neg.append("RSI was oversold at entry — poor short timing.")
+    else:
+        reasons_neg.append("RSI unavailable in decision snapshot.")
 
     if not latest:
         reasons_neg.append("Limited indicator context in decision snapshot.")
@@ -194,6 +102,8 @@ def _score_session_quality(market: Dict[str, Any], snapshot: Dict[str, Any], ass
 
     if venue:
         reasons_pos.append(f"Session venue recorded ({venue}).")
+    else:
+        reasons_neg.append("Session venue unknown.")
 
     return _dimension_result("session_quality", max(0, min(100, score)), reasons_pos, reasons_neg)
 
@@ -217,6 +127,8 @@ def _score_risk_reward(plan: Dict[str, Any], direction: str, asset_class: str) -
         else:
             score -= 25
             reasons_neg.append("Plan levels were not valid for trade direction.")
+    else:
+        reasons_neg.append("Entry, stop, or target missing from plan.")
 
     if rr is not None:
         if rr >= 2:
@@ -228,8 +140,9 @@ def _score_risk_reward(plan: Dict[str, Any], direction: str, asset_class: str) -
         else:
             score -= 15
             reasons_neg.append("Risk/reward below 1.5:1 — reward did not justify risk.")
+    else:
+        reasons_neg.append("Risk/reward ratio not calculated.")
 
-    unit = plan.get("quantity_unit") or plan.get("unit_type")
     if asset_class == AssetClass.FOREX.value and plan.get("pip_risk"):
         reasons_pos.append(f"Pip risk defined ({plan['pip_risk']} pips).")
         score += 5
@@ -242,6 +155,8 @@ def _score_risk_reward(plan: Dict[str, Any], direction: str, asset_class: str) -
 
     if plan.get("risk_amount"):
         reasons_pos.append("Dollar risk amount was calculated.")
+    else:
+        reasons_neg.append("Planned dollar risk not recorded.")
 
     return _dimension_result("risk_reward", max(0, min(100, score)), reasons_pos, reasons_neg)
 
@@ -288,6 +203,8 @@ def _score_entry_quality(
         else:
             score -= 10
             reasons_neg.append("Planned entry diverged from decision-time market price.")
+    elif reference is None:
+        reasons_neg.append("Planned entry price unknown.")
 
     return _dimension_result("entry_quality", max(0, min(100, score)), reasons_pos, reasons_neg)
 
@@ -319,6 +236,8 @@ def _score_volatility_context(
         else:
             score -= 20
             reasons_neg.append("Stop was tight relative to recent bar volatility.")
+    elif entry and stop:
+        reasons_neg.append("Volatility context unknown — recent bar range missing.")
 
     if asset_class == AssetClass.FOREX.value and plan.get("pip_risk"):
         if plan["pip_risk"] >= 15:
@@ -333,37 +252,101 @@ def _score_volatility_context(
             reasons_neg.append("Futures stop risk was very tight in tick terms.")
             score -= 10
 
-    if not last_range:
-        reasons_neg.append("Limited volatility context in decision snapshot.")
-
     return _dimension_result("volatility_context", max(0, min(100, score)), reasons_pos, reasons_neg)
 
 
 def _score_execution_quality(
     plan: Dict[str, Any],
-    outcome: Dict[str, Any],
     execution: Dict[str, Any],
     status: Optional[str],
 ) -> Dict[str, Any]:
+    """Grade fill discipline — independent of profit/loss."""
     if status != "closed" or not execution.get("exit"):
         return _dimension_result(
             "execution_quality",
             None,
             [],
-            ["Execution incomplete — outcome scoring deferred."],
+            ["Execution incomplete — fill quality deferred."],
             skipped=True,
         )
 
-    score = 60
+    score = 65
+    reasons_pos: List[str] = []
+    reasons_neg: List[str] = []
+
+    exit_reason = (execution.get("exit") or {}).get("reason")
+    if exit_reason == "take_profit":
+        score += 15
+        reasons_pos.append("Exit followed planned take-profit path.")
+    elif exit_reason == "stop_loss":
+        score += 10
+        reasons_pos.append("Exit respected planned stop — discipline maintained.")
+    elif exit_reason == "manual_close":
+        score += 5
+        reasons_pos.append("Manual exit recorded.")
+    else:
+        reasons_neg.append("Exit reason unknown.")
+
+    entry_fill = (execution.get("entry") or {}).get("price")
+    planned_entry = _level_price(plan.get("entry"))
+    if entry_fill and planned_entry:
+        slip_pct = abs(entry_fill - planned_entry) / max(planned_entry, 1e-9) * 100
+        if slip_pct <= 0.25:
+            score += 15
+            reasons_pos.append("Entry fill matched planned level closely.")
+        elif slip_pct <= 2:
+            score += 8
+            reasons_pos.append("Entry fill was reasonably close to plan.")
+        else:
+            score -= 10
+            reasons_neg.append("Entry fill diverged from planned level.")
+    else:
+        reasons_neg.append("Entry fill details unavailable.")
+
+    exit_fill = (execution.get("exit") or {}).get("price")
+    planned_target = _level_price(plan.get("target"))
+    planned_stop = _level_price(plan.get("stop_loss"))
+    direction = (plan.get("direction") or "LONG").upper()
+    if exit_fill and planned_target and direction == "LONG" and exit_reason == "take_profit":
+        if exit_fill >= planned_target * 0.98:
+            score += 10
+            reasons_pos.append("Exit captured planned target zone.")
+        else:
+            reasons_neg.append("Take-profit exit occurred below planned target.")
+    if exit_fill and planned_stop and exit_reason == "stop_loss":
+        reasons_pos.append("Stop exit confirms invalidation level was hit.")
+
+    return _dimension_result("execution_quality", max(0, min(100, score)), reasons_pos, reasons_neg)
+
+
+def _score_outcome(
+    outcome: Dict[str, Any],
+    execution: Dict[str, Any],
+    status: Optional[str],
+    metrics: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Grade realized result — separate from decision quality."""
+    if status != "closed" or not execution.get("exit"):
+        return _dimension_result(
+            "outcome_result",
+            None,
+            [],
+            ["Outcome unavailable — trade not closed."],
+            skipped=True,
+        )
+
+    score = 50
     reasons_pos: List[str] = []
     reasons_neg: List[str] = []
 
     win_loss = outcome.get("win_loss")
     r_multiple = outcome.get("r_multiple")
-    exit_reason = outcome.get("exit_reason") or (execution.get("exit") or {}).get("reason")
+    pnl = outcome.get("pnl")
 
+    if pnl is not None:
+        reasons_pos.append(f"Realized P/L: ${pnl:.2f}.")
     if win_loss == "win":
-        score += 20
+        score += 25
         reasons_pos.append("Trade closed profitably.")
     elif win_loss == "loss":
         score -= 20
@@ -375,31 +358,25 @@ def _score_execution_quality(
         if r_multiple >= 1.5:
             score += 20
             reasons_pos.append(f"Achieved strong R-multiple ({r_multiple}R).")
-        elif r_multiple >= 1:
-            score += 10
-            reasons_pos.append(f"Achieved positive R-multiple ({r_multiple}R).")
-        elif r_multiple <= -1:
+        elif r_multiple >= 0:
+            score += 5
+            reasons_pos.append(f"R-multiple: {r_multiple}R.")
+        else:
             score -= 15
             reasons_neg.append(f"Loss exceeded planned risk ({r_multiple}R).")
+    else:
+        reasons_neg.append("R-multiple unknown.")
 
-    if exit_reason == "take_profit":
-        score += 10
-        reasons_pos.append("Exit followed planned take-profit path.")
-    elif exit_reason == "stop_loss":
-        reasons_neg.append("Exit triggered by stop — review invalidation level.")
+    high = metrics.get("high_reached") or metrics.get("mfe")
+    low = metrics.get("low_reached") or metrics.get("mae")
+    if high is not None:
+        reasons_pos.append(f"Max favorable excursion reference: {high}.")
+    if low is not None:
+        reasons_pos.append(f"Max adverse excursion reference: {low}.")
+    if high is None and low is None:
+        reasons_neg.append("Excursion metrics unavailable.")
 
-    entry_fill = (execution.get("entry") or {}).get("price")
-    planned_entry = _level_price(plan.get("entry"))
-    if entry_fill and planned_entry:
-        slip_pct = abs(entry_fill - planned_entry) / max(planned_entry, 1e-9) * 100
-        if slip_pct <= 0.25:
-            score += 5
-            reasons_pos.append("Entry fill matched planned level closely.")
-        elif slip_pct > 2:
-            score -= 5
-            reasons_neg.append("Entry fill diverged from planned level.")
-
-    return _dimension_result("execution_quality", max(0, min(100, score)), reasons_pos, reasons_neg)
+    return _dimension_result("outcome_result", max(0, min(100, score)), reasons_pos, reasons_neg)
 
 
 def _dimension_result(
@@ -410,28 +387,15 @@ def _dimension_result(
     *,
     skipped: bool = False,
 ) -> Dict[str, Any]:
+    weight = DIMENSION_WEIGHTS.get(name, 0.0)
     return {
         "name": name,
         "score": score,
-        "weight": DIMENSION_WEIGHTS[name],
+        "weight": weight,
         "reasons_positive": reasons_positive,
         "reasons_negative": reasons_negative,
         "skipped": skipped,
     }
-
-
-def _grade_from_score(score: int) -> str:
-    if score >= 90:
-        return "A+"
-    if score >= 85:
-        return "A"
-    if score >= 75:
-        return "B+"
-    if score >= 65:
-        return "B"
-    if score >= 55:
-        return "C"
-    return "D"
 
 
 def _level_price(level: Any) -> Optional[float]:

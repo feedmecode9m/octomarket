@@ -489,15 +489,21 @@
             const rec = data.record;
             const outcome = rec.outcome || {};
             const scoring = rec.scoring || {};
-            const dims = scoring.dimensions || {};
+            const cats = scoring.categories || {};
+            const fmtCat = (key, label) => {
+                const c = cats[key];
+                if (!c || c.score == null) return `${label}: —`;
+                return `${label}: ${c.score}`;
+            };
             panel.style.display = 'block';
             panel.innerHTML = `
-                <strong>Replay Record</strong> · ${rec.status.toUpperCase()}
+                <strong>Decision Review</strong> · ${rec.mode || '—'} · ${rec.status.toUpperCase()}
+                <div class="mt-1">Decision: <strong>${scoring.decision_score ?? '—'}/100</strong> (${scoring.decision_grade || '—'})
+                · Outcome: ${scoring.outcome_score ?? '—'}/100 · Combined: ${scoring.total_score ?? '—'}/100</div>
+                <div class="text-muted">${fmtCat('setup', 'Setup')} · ${fmtCat('risk', 'Risk')} · ${fmtCat('execution', 'Exec')} · ${fmtCat('outcome', 'Result')}</div>
                 <div class="mt-1">P/L: <strong>${outcome.pnl != null ? '$' + outcome.pnl.toFixed(2) : '—'}</strong>
                 · R: ${outcome.r_multiple ?? '—'} · ${outcome.win_loss || '—'}</div>
-                <div class="text-muted">Score: ${scoring.total_score ?? '—'}/100
-                ${dims.plan_quality != null ? ` · Plan ${dims.plan_quality}` : ''}
-                ${dims.execution != null ? ` · Exec ${dims.execution}` : ''}</div>
+                ${scoring.decision_quality_note ? `<div class="text-muted mt-1">${scoring.decision_quality_note}</div>` : ''}
                 <div class="text-muted mt-1">Snapshot @ ${(rec.decision_context || {}).captured_at || '—'}</div>`;
         }
 

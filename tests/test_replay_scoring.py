@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.market.asset_class import AssetClass
 from src.replay.replay_memory import ReplayMemory
 from src.replay.replay_record import apply_exit_fill, build_replay_record_from_plan
-from src.replay.replay_scoring import score_replay_record
+from src.replay.scoring_service import score_replay_record
 from src.replay.replay_store import ReplayStore
 
 
@@ -84,9 +84,13 @@ class TestReplayScoring(unittest.TestCase):
         record = _closed_record(AssetClass.STOCK.value, plan, market)
         scoring = score_replay_record(record)
 
-        self.assertGreaterEqual(scoring["total_score"], 0)
-        self.assertLessEqual(scoring["total_score"], 100)
+        self.assertEqual(scoring["schema_version"], 2)
+        self.assertGreaterEqual(scoring["decision_score"], 0)
+        self.assertLessEqual(scoring["decision_score"], 100)
         self.assertIn("grade", scoring)
+        self.assertIn("decision_grade", scoring)
+        self.assertIn("categories", scoring)
+        self.assertIn("setup", scoring["categories"])
         self.assertIn("trend_alignment", scoring["dimensions"])
         self.assertTrue(scoring["reasons_positive"])
         self.assertEqual(scoring["completeness"], "full")
@@ -170,9 +174,82 @@ class TestReplayScoring(unittest.TestCase):
         }
         scoring = score_replay_record(record)
 
-        self.assertEqual(scoring["completeness"], "partial")
+        self.assertEqual(scoring["completeness"], "decision_only")
         self.assertTrue(scoring["dimensions"]["execution_quality"]["skipped"])
+        self.assertTrue(scoring["dimensions"]["outcome_result"]["skipped"])
         self.assertIn("Execution incomplete", " ".join(scoring["reasons_negative"]))
+
+    def test_good_decision_losing_outcome(self):
+        plan = {
+            "id": "good-loss",
+            "symbol": "AAPL",
+            "direction": "LONG",
+            "thesis": "Strong breakout with defined risk",
+            "entry": {"price": 185.0},
+            "stop_loss": {"price": 180.0},
+            "target": {"price": 195.0},
+            "quantity": 10,
+            "risk_reward": 2.0,
+            "risk_amount": 50.0,
+            "_exit_price": 179.0,
+        }
+        market = {"instrument_id": "AAPL", "asset_class": "STOCK", "symbol": "AAPL"}
+        record = _closed_record(AssetClass.STOCK.value, plan, market)
+        record["outcome"]["win_loss"] = "loss"
+        record["outcome"]["r_multiple"] = -1.0
+        record["outcome"]["pnl"] = -50.0
+        record["execution"]["exit"]["reason"] = "stop_loss"
+        scoring = score_replay_record(record)
+
+        self.assertGreaterEqual(scoring["decision_score"], 70)
+        self.assertLess(scoring["outcome_score"], 60)
+        self.assertIn("variance", (scoring.get("decision_quality_note") or "").lower())
+
+    def test_poor_decision_winning_outcome(self):
+        plan = {
+            "id": "bad-win",
+            "symbol": "AAPL",
+            "direction": "LONG",
+            "thesis": "",
+            "entry": {"price": 200.0},
+            "stop_loss": {"price": 205.0},
+            "target": {"price": 195.0},
+            "quantity": 10,
+            "risk_reward": 0.5,
+            "_exit_price": 198.0,
+        }
+        market = {"instrument_id": "AAPL", "asset_class": "STOCK", "symbol": "AAPL"}
+        record = _closed_record(AssetClass.STOCK.value, plan, market)
+        record["outcome"]["win_loss"] = "win"
+        record["outcome"]["r_multiple"] = 0.5
+        record["outcome"]["pnl"] = 20.0
+        scoring = score_replay_record(record)
+
+        self.assertLessEqual(scoring["decision_score"], 65)
+        self.assertGreater(scoring["outcome_score"], scoring["decision_score"])
+        note = (scoring.get("decision_quality_note") or "").lower()
+        self.assertIn("decision quality", note)
+
+    def test_live_paper_mode_tagged_in_scoring(self):
+        plan = {
+            "id": "live-1",
+            "symbol": "AAPL",
+            "direction": "LONG",
+            "thesis": "Paper trade",
+            "entry": {"price": 185},
+            "stop_loss": {"price": 180},
+            "target": {"price": 195},
+            "risk_reward": 2.0,
+            "risk_amount": 50,
+            "quantity": 10,
+            "_exit_price": 190,
+        }
+        market = {"instrument_id": "AAPL", "asset_class": "STOCK", "symbol": "AAPL"}
+        record = _closed_record(AssetClass.STOCK.value, plan, market)
+        record["mode"] = "live_paper"
+        scoring = score_replay_record(record)
+        self.assertEqual(scoring["mode"], "live_paper")
+        self.assertIsNotNone(scoring["decision_score"])
 
     @mock.patch("src.replay.market_snapshot._load_candles")
     def test_scoring_persists_on_close(self, mock_load):
@@ -213,7 +290,8 @@ class TestReplayScoring(unittest.TestCase):
         )
         assert closed is not None
         self.assertIsNotNone(closed.get("scoring"))
-        self.assertIn("total_score", closed["scoring"])
+        self.assertIn("decision_score", closed["scoring"])
+        self.assertIn("categories", closed["scoring"])
 
         reloaded = store.get(record["id"])
         assert reloaded is not None

@@ -12,7 +12,7 @@ from .replay_record import (
     apply_order_submitted,
     build_replay_record_from_plan,
 )
-from .replay_scoring import apply_scoring, score_replay_record
+from .scoring_service import apply_scoring, score_replay_record
 from .replay_store import ReplayStore, get_replay_store
 
 
@@ -64,6 +64,7 @@ class ReplayMemory:
         if not record:
             return None
         updated = apply_exit_fill(record, order, fill, exit_reason=exit_reason)
+        updated = apply_scoring(updated)
         saved = self._store.save(updated)
         self._mark_plan_completed(saved.get("plan_id"))
         return saved
@@ -110,10 +111,12 @@ class ReplayMemory:
         fill = {"fill_price": exit_price, "quantity": qty}
         if not synthetic_order["parent_id"]:
             updated = apply_exit_fill(record, synthetic_order, fill, exit_reason="manual_close")
+            updated = apply_scoring(updated)
             saved = self._store.save(updated)
             self._mark_plan_completed(saved.get("plan_id"))
             return saved
-        return self.on_exit_fill(synthetic_order, fill, exit_reason="manual_close")
+        result = self.on_exit_fill(synthetic_order, fill, exit_reason="manual_close")
+        return result
 
     def reset(self) -> None:
         with self._lock:
