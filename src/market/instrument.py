@@ -34,6 +34,7 @@ class Instrument:
     currency: str = "USD"
     contract: Optional[str] = None
     contract_month: Optional[str] = None
+    continuous_id: Optional[str] = None
     point_value: Optional[float] = None
     tick_value: Optional[float] = None
     multiplier: Optional[float] = None
@@ -79,6 +80,8 @@ class Instrument:
             payload["contract"] = self.contract
         if self.contract_month:
             payload["contract_month"] = self.contract_month
+        if self.continuous_id:
+            payload["continuous_id"] = self.continuous_id
         if self.point_value is not None:
             payload["point_value"] = self.point_value
         if self.tick_value is not None:
@@ -174,6 +177,7 @@ def _instrument_from_contract(contract: FuturesContract) -> Instrument:
         currency="USD",
         contract=contract.contract,
         contract_month=contract.contract_month,
+        continuous_id=contract.root,
         point_value=contract.point_value(),
         tick_value=contract.tick_value,
         multiplier=contract.multiplier,
