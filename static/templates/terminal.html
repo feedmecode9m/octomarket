@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ module_labels.terminal }} — {{ product_name }}</title>
     <link href="/static/assets/branding/theme.css" rel="stylesheet">
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/js/terminal_chart.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -33,7 +34,15 @@
         .session-open { background: var(--accent-success); color: #000; }
         .session-closed { background: var(--accent-danger); }
         .session-idle { background: #555; }
-        #chartDiv { height: calc(100% - 32px); cursor: crosshair; }
+        .chart-panel { display: flex; flex-direction: column; min-height: 0; }
+        .chart-toolbar {
+            display: flex; align-items: center; gap: 10px; padding: 4px 10px;
+            background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
+            font-size: 0.75rem; flex-shrink: 0;
+        }
+        .chart-toolbar select { max-width: 110px; }
+        .crosshair-readout { color: #aaa; margin-left: auto; font-family: monospace; white-space: nowrap; }
+        #chartDiv { flex: 1; min-height: 0; cursor: crosshair; }
         .tab-bar { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
         .tab-btn { padding: 6px 14px; font-size: 0.75rem; text-transform: uppercase; cursor: pointer; border: none; background: none; color: #888; }
         .tab-btn.active { color: var(--accent-primary); border-bottom: 2px solid var(--accent-primary); }
@@ -93,7 +102,21 @@
         </div>
 
         <div class="panel chart-panel">
-            <div class="panel-header"><i class="fas fa-chart-line"></i> <span id="chartSymbol">AAPL</span> — click chart to set price</div>
+            <div class="panel-header"><i class="fas fa-chart-bar"></i> Chart Workspace</div>
+            <div class="chart-toolbar">
+                <strong id="chartSymbol">AAPL</strong>
+                <label class="text-muted mb-0">TF</label>
+                <select class="form-select form-select-sm" id="chartTimeframe" aria-label="Timeframe">
+                    <option value="1m">1m</option>
+                    <option value="5m">5m</option>
+                    <option value="15m">15m</option>
+                    <option value="1h">1h</option>
+                    <option value="1d" selected>1d</option>
+                    <option value="1wk">1wk</option>
+                </select>
+                <span class="text-muted">scroll/pinch zoom · drag pan · click set price</span>
+                <span class="crosshair-readout" id="crosshairReadout">O — H — L — C — V —</span>
+            </div>
             <div id="chartDiv"></div>
         </div>
 
@@ -168,7 +191,8 @@
 
     <script>
         let selectedSymbol = 'AAPL';
-        let chartPrices = [];
+        let selectedTimeframe = '1d';
+        let terminalChart = null;
         let pendingCancelId = null;
 
         async function api(url, opts = {}) {
@@ -220,44 +244,56 @@
             return review;
         }
 
-        function buildChartShapes() {
-            const shapes = [];
-            const price = parseFloat(document.getElementById('orderPrice').value);
-            const sl = parseFloat(document.getElementById('orderSL').value);
-            const tp = parseFloat(document.getElementById('orderTP').value);
-            if (price) shapes.push({ type: 'line', x0: 0, x1: 1, xref: 'paper', y0: price, y1: price, line: { color: '#00d4ff', width: 2, dash: 'dash' } });
-            if (sl) shapes.push({ type: 'line', x0: 0, x1: 1, xref: 'paper', y0: sl, y1: sl, line: { color: '#ff4757', width: 2 } });
-            if (tp) shapes.push({ type: 'line', x0: 0, x1: 1, xref: 'paper', y0: tp, y1: tp, line: { color: '#00ff88', width: 2 } });
-            return shapes;
+        function updateCrosshairReadout(bar) {
+            const el = document.getElementById('crosshairReadout');
+            if (!bar) {
+                el.textContent = 'O — H — L — C — V —';
+                return;
+            }
+            const fmt = (n) => Number(n).toFixed(2);
+            const vol = bar.volume != null ? Math.round(bar.volume).toLocaleString() : '—';
+            el.textContent = `O ${fmt(bar.open)}  H ${fmt(bar.high)}  L ${fmt(bar.low)}  C ${fmt(bar.close)}  V ${vol}`;
+        }
+
+        function refreshChartPriceLines() {
+            if (!terminalChart) return;
+            terminalChart.updatePriceLines({
+                entry: parseFloat(document.getElementById('orderPrice').value) || null,
+                stopLoss: parseFloat(document.getElementById('orderSL').value) || null,
+                takeProfit: parseFloat(document.getElementById('orderTP').value) || null,
+            });
+        }
+
+        async function initTerminalChart() {
+            const state = await api('/api/chart/state');
+            selectedSymbol = (state.symbol || 'AAPL').toUpperCase();
+            selectedTimeframe = state.timeframe || '1d';
+            document.getElementById('chartSymbol').textContent = selectedSymbol;
+            document.getElementById('orderSymbol').value = selectedSymbol;
+            document.getElementById('chartTimeframe').value = selectedTimeframe;
+
+            terminalChart = new OctoMarketTerminalChart('chartDiv', {
+                fetchJson: api,
+                symbol: selectedSymbol,
+                timeframe: selectedTimeframe,
+                onCrosshair: updateCrosshairReadout,
+                onClickPrice: (price) => {
+                    document.getElementById('orderPrice').value = price;
+                    refreshChartPriceLines();
+                    reviewOrder();
+                },
+            });
+            await loadChart();
         }
 
         async function loadChart() {
-            const data = await api(`/api/session/chart/${selectedSymbol}`);
-            chartPrices = data.prices || [];
-            const layout = {
-                paper_bgcolor: '#2a2a2a', plot_bgcolor: '#1a1a1a', font: { color: '#fff' },
-                xaxis: { gridcolor: '#333' }, yaxis: { gridcolor: '#333' },
-                margin: { t: 10, b: 30, l: 50, r: 10 },
-                shapes: buildChartShapes(),
-                dragmode: 'pan'
-            };
-            if (!chartPrices.length) {
-                Plotly.newPlot('chartDiv', [{ x: [0], y: [0], type: 'scatter', line: { color: '#00d4ff' } }], layout, { responsive: true, displayModeBar: false });
-                return;
+            if (!terminalChart) return;
+            try {
+                await terminalChart.load(selectedSymbol, selectedTimeframe);
+                refreshChartPriceLines();
+            } catch (err) {
+                document.getElementById('crosshairReadout').textContent = err.message || 'Chart load failed';
             }
-            Plotly.newPlot('chartDiv', [{
-                x: data.timestamps, y: chartPrices, type: 'scatter', mode: 'lines',
-                line: { color: '#00d4ff', width: 2 }
-            }], layout, { responsive: true, displayModeBar: false });
-
-            document.getElementById('chartDiv').on('plotly_click', (ev) => {
-                if (ev.points && ev.points[0]) {
-                    const price = ev.points[0].y.toFixed(2);
-                    document.getElementById('orderPrice').value = price;
-                    loadChart();
-                    reviewOrder();
-                }
-            });
         }
 
         async function loadWatchlist() {
@@ -271,11 +307,12 @@
                     <div class="${w.trend === 'bullish' ? 'bullish' : w.trend === 'bearish' ? 'bearish' : 'neutral'}">${w.change_percent >= 0 ? '+' : ''}${w.change_percent}%</div></div>
                 </div>`).join('');
             el.querySelectorAll('.watchlist-item').forEach(item => {
-                item.onclick = () => {
+                item.onclick = async () => {
                     selectedSymbol = item.dataset.symbol;
                     document.getElementById('chartSymbol').textContent = selectedSymbol;
                     document.getElementById('orderSymbol').value = selectedSymbol;
-                    loadWatchlist(); loadChart();
+                    await loadWatchlist();
+                    await loadChart();
                 };
             });
         }
@@ -413,9 +450,14 @@
         document.getElementById('pauseSessionBtn').onclick = () => api('/api/session/pause', { method: 'POST' });
         document.getElementById('closeSessionBtn').onclick = () => api('/api/session/close', { method: 'POST' });
 
+        document.getElementById('chartTimeframe').addEventListener('change', async (e) => {
+            selectedTimeframe = e.target.value;
+            await loadChart();
+        });
+
         ['orderQty','orderPrice','orderSL','orderTP','orderType','orderSide'].forEach(id => {
-            document.getElementById(id).addEventListener('change', () => { reviewOrder(); loadChart(); });
-            document.getElementById(id).addEventListener('input', () => { reviewOrder(); loadChart(); });
+            document.getElementById(id).addEventListener('change', () => { reviewOrder(); refreshChartPriceLines(); });
+            document.getElementById(id).addEventListener('input', () => { reviewOrder(); refreshChartPriceLines(); });
         });
 
         document.addEventListener('keydown', (e) => {
@@ -426,7 +468,14 @@
             if (e.key === 'Escape') cancelLastPending();
         });
 
-        loadWatchlist(); loadChart(); refreshBottomPanel(); loadCommentary(); reviewOrder(); loadStats();
+        (async () => {
+            await initTerminalChart();
+            await loadWatchlist();
+            refreshBottomPanel();
+            loadCommentary();
+            reviewOrder();
+            loadStats();
+        })();
     </script>
 </body>
 </html>
