@@ -116,8 +116,10 @@
         </div>
         <div>
             <button class="btn btn-sm btn-outline-success me-1" id="startSessionBtn"><i class="fas fa-play"></i> Start Replay</button>
+            <button class="btn btn-sm btn-outline-info me-1" id="playSessionBtn"><i class="fas fa-play-circle"></i> Play</button>
             <button class="btn btn-sm btn-outline-primary me-1" id="stepSessionBtn"><i class="fas fa-forward"></i> Step</button>
             <button class="btn btn-sm btn-outline-warning me-1" id="pauseSessionBtn"><i class="fas fa-pause"></i> Pause</button>
+            <button class="btn btn-sm btn-outline-secondary me-1" id="resetSessionBtn"><i class="fas fa-undo"></i> Reset</button>
             <button class="btn btn-sm btn-outline-danger me-2" id="closeSessionBtn"><i class="fas fa-stop"></i> Close</button>
             <a href="/" class="btn btn-sm btn-outline-light me-1">Home</a>
             <a href="/mentor" class="btn btn-sm btn-outline-warning btn-sm">Mentor</a>
@@ -239,7 +241,11 @@
                         <button class="btn btn-plan btn-sm" id="runResearchBtn">RUN EVALUATION</button>
                         <button class="btn btn-plan btn-sm mt-1" id="validateAllBtn">COMPARE ALL STRATEGIES</button>
                         <button class="btn btn-plan btn-sm mt-1" id="recommendStrategyBtn">RECOMMEND FAMILY</button>
-                        <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:200px;"></div>
+                        <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:260px;"></div>
+                        <div id="recommendationActions" class="mt-1" style="display:none">
+                            <button class="btn btn-plan btn-plan-order btn-sm" id="createPlanFromRecBtn">CREATE PLAN</button>
+                            <button class="btn btn-plan btn-sm mt-1" id="ignoreRecBtn">IGNORE</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -328,6 +334,8 @@
         let planEntrySource = null;
         let strategyCatalog = {};
         let selectedStrategyId = '';
+        let lastRecommendationPayload = null;
+        let replayPlayTimer = null;
 
         async function api(url, opts = {}) {
             const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -489,10 +497,16 @@
                 venueState === 'closed' ? 'session-closed' : 'session-idle'
             ) + ' ms-1 mt-1 d-inline-block';
             marketEl.textContent = replayActive ? 'Replay' : 'Live Paper';
-            if (replayActive && payload.total_candles) {
+            if (replayActive) {
                 const idx = Math.max(0, (payload.current_index ?? -1) + 1);
-                const hidden = payload.hidden_candles ?? 0;
-                progressEl.textContent = `${payload.progress_pct ?? 0}% · ${idx}/${payload.total_candles} · ${hidden} hidden`;
+                const total = payload.total_candles || 0;
+                const hidden = payload.hidden_candles ?? Math.max(0, total - idx);
+                const visible = payload.visible_candle_count ?? idx;
+                const ts = payload.current_timestamp
+                    || (payload.current_candle && payload.current_candle.timestamp)
+                    || '—';
+                progressEl.textContent =
+                    `${payload.progress_pct ?? 0}% · ${visible}/${total} visible · ${hidden} hidden · ${ts}`;
             } else {
                 progressEl.textContent = payload.progress_pct ? `${payload.progress_pct}%` : '';
             }
@@ -773,16 +787,81 @@
 
         function renderRecommendation(payload) {
             const panel = document.getElementById('researchReportPanel');
+            const actions = document.getElementById('recommendationActions');
             panel.style.display = 'block';
+            lastRecommendationPayload = payload;
             const rec = payload.recommendation || {};
             const ctx = payload.market_context || {};
+            const dq = ctx.data_quality || {};
+            const matched = (rec.historical_conditions || {}).matched_strategies || [];
+            const top = matched[0] || {};
             const warnings = (rec.warnings || payload.warnings || []).map((w) => `<li>${w}</li>`).join('');
+            const evidence = matched.length
+                ? matched.map((m) =>
+                    `<div class="mt-1"><strong>${m.strategy_name || m.strategy_id}</strong>
+                    · ${m.trade_count ?? '—'} trades · PF ${m.profit_factor ?? '—'}
+                    · OOS PF ${m.oos_profit_factor ?? '—'} · Decision ${m.average_decision_score ?? '—'}</div>`
+                ).join('')
+                : '<div class="text-muted mt-1">No matched strategy evidence under reliability filters.</div>';
             panel.innerHTML = `
-                <strong>Strategy family recommendation</strong> · decision support only
-                <div class="mt-1">Context: ${ctx.trend_state || '—'} · vol ${ctx.volatility_state || '—'} · ${(ctx.active_regimes || []).join(', ') || '—'}</div>
-                <div>Family: ${rec.strategy_family || 'none'} · Confidence: ${rec.confidence || '—'}</div>
+                <strong>Market Context</strong>
+                <div class="mt-1">Trend: ${ctx.trend_state || '—'} · Volatility: ${ctx.volatility_state || '—'}
+                · Session: ${ctx.session_quality || '—'} · Data: ${dq.data_quality || '—'} (${dq.bars ?? '—'} bars)</div>
+                <div class="mt-2"><strong>Recommendation</strong> · decision support only</div>
+                <div class="mt-1">Family: <strong>${rec.strategy_family || 'none'}</strong> · Confidence: ${rec.confidence || '—'}</div>
+                <div class="mt-1"><strong>Evidence</strong></div>
+                ${evidence}
+                ${top.trade_count != null ? `<div class="text-muted mt-1">Primary sample: ${top.trade_count} trades · PF ${top.profit_factor ?? '—'} · OOS PF ${top.oos_profit_factor ?? '—'}</div>` : ''}
                 <div class="mt-1">${rec.narrative || ''}</div>
                 ${warnings ? `<div class="mt-1"><strong>Warnings</strong><ul class="mb-0 ps-3">${warnings}</ul></div>` : ''}`;
+            actions.style.display = rec.strategy_family ? 'block' : 'none';
+        }
+
+        function ignoreRecommendation() {
+            lastRecommendationPayload = null;
+            document.getElementById('recommendationActions').style.display = 'none';
+            const panel = document.getElementById('researchReportPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Recommendation ignored — no TradePlan created.';
+        }
+
+        async function createPlanFromRecommendation() {
+            const el = document.getElementById('planResult');
+            if (!lastRecommendationPayload) {
+                el.textContent = 'Request a recommendation first.';
+                return;
+            }
+            el.textContent = 'Creating plan via TradePlanManager…';
+            try {
+                const resp = await api('/api/research/recommend/create-plan', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        instrument_id: selectedInstrumentId,
+                        recommendation: lastRecommendationPayload,
+                        timeframe: selectedTimeframe,
+                        period: selectedPeriod,
+                        account_balance: accountBalance,
+                        risk_percent: 1.0,
+                    }),
+                });
+                if (resp.error) throw new Error(resp.error);
+                if (!resp.plan) {
+                    el.textContent = resp.reason || 'No setup at current bar — recommendation kept, no plan created.';
+                    return;
+                }
+                applyPlanToForm(resp.plan);
+                syncPlanToOrderTicket(resp.plan);
+                selectedStrategyId = resp.plan.strategy_id || selectedStrategyId;
+                const sel = document.getElementById('strategySelect');
+                if (sel && selectedStrategyId) {
+                    sel.value = selectedStrategyId;
+                    document.getElementById('generateStrategyPlanBtn').style.display = 'inline-block';
+                }
+                el.textContent = `${resp.plan.strategy_name || 'Strategy'} plan created — review and CREATE ORDER when ready`;
+                if (resp.plan.id) loadReplayRecordReview(resp.plan.id);
+            } catch (e) {
+                el.textContent = e.message;
+            }
         }
 
         async function runStrategyResearch() {
@@ -1176,6 +1255,7 @@
             if (sym) { await api('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol: sym }) }); loadWatchlist(); }
         };
         document.getElementById('startSessionBtn').onclick = async () => {
+            stopReplayPlay();
             const resp = await api('/api/session/start', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -1191,22 +1271,56 @@
                 await loadChart();
             }
         };
-        document.getElementById('stepSessionBtn').onclick = async () => {
+
+        async function stepReplayOnce() {
             const resp = await api('/api/session/step', { method: 'POST' });
-            if (!resp.error) {
-                updateReplayDisplay(resp);
-                loadWatchlist();
-                loadChart();
-                refreshBottomPanel();
-                loadCommentary();
-                if (currentPlanId) loadReplayRecordReview(currentPlanId);
+            if (resp.error) {
+                stopReplayPlay();
+                return resp;
             }
+            updateReplayDisplay(resp);
+            loadWatchlist();
+            await loadChart();
+            refreshBottomPanel();
+            loadCommentary();
+            if (currentPlanId) loadReplayRecordReview(currentPlanId);
+            if (resp.status === 'closed' || resp.at_end) stopReplayPlay();
+            return resp;
+        }
+
+        function stopReplayPlay() {
+            if (replayPlayTimer) {
+                clearInterval(replayPlayTimer);
+                replayPlayTimer = null;
+            }
+        }
+
+        document.getElementById('stepSessionBtn').onclick = async () => {
+            stopReplayPlay();
+            await stepReplayOnce();
+        };
+        document.getElementById('playSessionBtn').onclick = async () => {
+            stopReplayPlay();
+            await api('/api/session/resume', { method: 'POST' });
+            replayPlayTimer = setInterval(() => { stepReplayOnce(); }, 900);
+            await stepReplayOnce();
         };
         document.getElementById('pauseSessionBtn').onclick = async () => {
+            stopReplayPlay();
             const resp = await api('/api/session/pause', { method: 'POST' });
             if (!resp.error) updateReplayDisplay(resp);
         };
+        document.getElementById('resetSessionBtn').onclick = async () => {
+            stopReplayPlay();
+            const resp = await api('/api/session/reset', { method: 'POST' });
+            if (!resp.error) {
+                updateReplayDisplay(resp.state || resp);
+                await loadChart();
+                refreshBottomPanel();
+            }
+        };
         document.getElementById('closeSessionBtn').onclick = async () => {
+            stopReplayPlay();
             const resp = await api('/api/session/close', { method: 'POST' });
             if (!resp.error) {
                 updateReplayDisplay(resp.state || resp);
@@ -1241,6 +1355,8 @@
         document.getElementById('runResearchBtn').onclick = runStrategyResearch;
         document.getElementById('validateAllBtn').onclick = runStrategyValidation;
         document.getElementById('recommendStrategyBtn').onclick = recommendStrategyFamily;
+        document.getElementById('createPlanFromRecBtn').onclick = createPlanFromRecommendation;
+        document.getElementById('ignoreRecBtn').onclick = ignoreRecommendation;
         document.getElementById('strategySelect').addEventListener('change', (e) => {
             selectedStrategyId = e.target.value;
             document.getElementById('generateStrategyPlanBtn').style.display = selectedStrategyId ? 'inline-block' : 'none';

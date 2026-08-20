@@ -3,10 +3,11 @@
 from flask import Blueprint, jsonify, request
 
 from ..research.runner import get_strategy_backtest_runner
-from ..research.selection import get_adaptive_strategy_selector
+from ..research.selection import get_adaptive_strategy_selector, preferred_strategy_from_recommendation
 from ..research.store import get_research_report_store
 from ..research.validation import get_strategy_validation_service
 from ..research.walkforward import get_walk_forward_service
+from ..strategies.engine import get_strategy_engine
 from ..strategies.registry import get_strategy_registry
 
 research_bp = Blueprint("research", __name__, url_prefix="/api/research")
@@ -16,6 +17,7 @@ _runner = get_strategy_backtest_runner()
 _validator = get_strategy_validation_service()
 _walkforward = get_walk_forward_service()
 _selector = get_adaptive_strategy_selector()
+_engine = get_strategy_engine()
 _reports = get_research_report_store()
 
 
@@ -173,6 +175,42 @@ def research_recommend():
             require_cost_adjusted_edge=bool(data.get("require_cost_adjusted_edge", True)),
         )
         return jsonify({"recommendation": payload})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@research_bp.route("/recommend/create-plan", methods=["POST"])
+def research_recommend_create_plan():
+    """
+    Human approval bridge: recommendation → StrategyEngine → TradePlanManager.
+
+    Does not create orders, execute fills, or mutate ReplayRecords directly.
+    """
+    data = request.get_json(silent=True) or {}
+    instrument_id = data.get("instrument_id") or data.get("symbol")
+    if not instrument_id:
+        return jsonify({"error": "instrument_id or symbol is required"}), 400
+
+    strategy_id = data.get("strategy_id")
+    if not strategy_id:
+        strategy_id = preferred_strategy_from_recommendation(data.get("recommendation") or data)
+    if not strategy_id:
+        return jsonify({"error": "No strategy available to create a plan from this recommendation"}), 400
+
+    try:
+        result = _engine.generate_plan(
+            strategy_id,
+            instrument_id,
+            timeframe=data.get("timeframe") or data.get("interval"),
+            period=data.get("period"),
+            account_balance=data.get("account_balance"),
+            risk_percent=data.get("risk_percent"),
+        )
+        result["decision_support_only"] = True
+        result["created_from_recommendation"] = True
+        if not result.get("plan"):
+            return jsonify(result), 200
+        return jsonify(result), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 

@@ -282,6 +282,20 @@ def _matched_decision_score(matched: Dict[str, Any], report: Dict[str, Any]) -> 
     return report.get("average_decision_score")
 
 
+def preferred_strategy_from_recommendation(payload: Dict[str, Any]) -> Optional[str]:
+    """Pick the highest-evidence strategy id from a recommendation payload. No side effects."""
+    rec = payload.get("recommendation") if "recommendation" in payload else payload
+    if not isinstance(rec, dict):
+        return None
+    matched = ((rec.get("historical_conditions") or {}).get("matched_strategies") or [])
+    if matched:
+        return matched[0].get("strategy_id")
+    candidates = payload.get("candidates") or []
+    if candidates:
+        return candidates[0].get("strategy_id")
+    return None
+
+
 def _family_label(family: str) -> str:
     return {
         "trend_following": "Trend family",

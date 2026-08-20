@@ -91,6 +91,10 @@ def _merge_terminal_state(replay_state: dict) -> dict:
     merged["state"] = session_state.get("state", "idle")
     merged["replay_mode"] = replay_state.get("mode") == "replay"
     merged["portfolio"] = _portfolio.to_dict(prices)
+    candle = replay_state.get("current_candle") or {}
+    current = replay_state.get("current_index", session_state.get("current_index", -1))
+    merged["current_timestamp"] = candle.get("timestamp")
+    merged["visible_candle_count"] = max(0, int(current) + 1) if current is not None and int(current) >= 0 else 0
     return merged
 
 
@@ -181,6 +185,16 @@ def close_session():
     _replay.reset()
     return jsonify({
         "message": "Session closed",
+        "state": _merge_terminal_state(_replay.get_state()),
+    })
+
+
+@terminal_bp.route("/session/reset", methods=["POST"])
+def reset_session():
+    """Reset replay clock and return to LIVE PAPER — same lifecycle as close."""
+    _replay.reset()
+    return jsonify({
+        "message": "Replay reset",
         "state": _merge_terminal_state(_replay.get_state()),
     })
 
