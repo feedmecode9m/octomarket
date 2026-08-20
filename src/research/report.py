@@ -7,7 +7,9 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-REPORT_SCHEMA_VERSION = 1
+from .regime import aggregate_regime_performance
+
+REPORT_SCHEMA_VERSION = 2
 
 
 def new_report_id() -> str:
@@ -52,9 +54,11 @@ def build_strategy_report(
     expectancy = round(sum(pnls) / len(pnls), 2) if pnls else None
 
     best, weak = _condition_analysis(closed)
+    regime_performance = aggregate_regime_performance(closed)
 
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
+        "report_type": "strategy",
         "report_id": new_report_id(),
         "generated_at": datetime.now().isoformat(),
         "strategy_id": strategy_id,
@@ -80,6 +84,7 @@ def build_strategy_report(
         "total_pnl": round(sum(pnls), 2) if pnls else 0,
         "best_conditions": best,
         "weak_conditions": weak,
+        "regime_performance": regime_performance,
         "record_ids": [r["id"] for r in closed],
     }
 

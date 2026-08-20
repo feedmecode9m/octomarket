@@ -22,7 +22,9 @@ class ResearchReportStore:
         self._load()
 
     def save(self, report: Dict[str, Any]) -> Dict[str, Any]:
-        report_id = report["report_id"]
+        report_id = report.get("comparison_id") or report.get("report_id")
+        if not report_id:
+            raise ValueError("Report must include report_id or comparison_id")
         with self._lock:
             self._reports[report_id] = json.loads(json.dumps(report))
             self._persist()
@@ -32,6 +34,24 @@ class ResearchReportStore:
         with self._lock:
             item = self._reports.get(report_id)
             return json.loads(json.dumps(item)) if item else None
+
+    def latest_comparison(
+        self,
+        instrument_id: str,
+        *,
+        period: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            items = [
+                r for r in self._reports.values()
+                if r.get("report_type") == "comparison"
+                and r.get("instrument_id", "").upper() == instrument_id.upper()
+                and (not period or r.get("period") == period)
+            ]
+            if not items:
+                return None
+            items.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
+            return json.loads(json.dumps(items[0]))
 
     def latest_for_strategy(
         self,
@@ -70,8 +90,9 @@ class ResearchReportStore:
                 if not line:
                     continue
                 report = json.loads(line)
-                if report.get("report_id"):
-                    self._reports[report["report_id"]] = report
+                rid = report.get("comparison_id") or report.get("report_id")
+                if rid:
+                    self._reports[rid] = report
 
     def _persist(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

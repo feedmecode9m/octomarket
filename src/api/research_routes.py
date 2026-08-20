@@ -4,12 +4,14 @@ from flask import Blueprint, jsonify, request
 
 from ..research.runner import get_strategy_backtest_runner
 from ..research.store import get_research_report_store
+from ..research.validation import get_strategy_validation_service
 from ..strategies.registry import get_strategy_registry
 
 research_bp = Blueprint("research", __name__, url_prefix="/api/research")
 
 _registry = get_strategy_registry()
 _runner = get_strategy_backtest_runner()
+_validator = get_strategy_validation_service()
 _reports = get_research_report_store()
 
 
@@ -59,6 +61,46 @@ def research_report(report_id):
     if not report:
         return jsonify({"error": "Research report not found"}), 404
     return jsonify({"report": report})
+
+
+@research_bp.route("/validate", methods=["POST"])
+def research_validate():
+    """Run all compatible strategies under identical conditions and compare."""
+    data = request.get_json(silent=True) or {}
+    instrument_id = data.get("instrument_id") or data.get("symbol")
+    if not instrument_id:
+        return jsonify({"error": "instrument_id or symbol is required"}), 400
+    try:
+        comparison = _validator.run_batch(
+            instrument_id,
+            period=data.get("period", "6mo"),
+            interval=data.get("interval", "1d"),
+            initial_cash=float(data.get("initial_cash", 10000)),
+            cooldown_bars=int(data.get("cooldown_bars", 1)),
+            max_trades=data.get("max_trades"),
+            strategy_ids=data.get("strategy_ids"),
+        )
+        return jsonify({"comparison": comparison}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@research_bp.route("/compare/<comparison_id>", methods=["GET"])
+def research_compare(comparison_id):
+    """Fetch a stored strategy comparison report."""
+    if comparison_id == "latest":
+        instrument_id = request.args.get("instrument_id")
+        if not instrument_id:
+            return jsonify({"error": "instrument_id required for latest comparison"}), 400
+        report = _reports.latest_comparison(
+            instrument_id,
+            period=request.args.get("period"),
+        )
+    else:
+        report = _reports.get(comparison_id)
+    if not report or report.get("report_type") != "comparison":
+        return jsonify({"error": "Comparison report not found"}), 404
+    return jsonify({"comparison": report})
 
 
 @research_bp.route("/reports", methods=["GET"])

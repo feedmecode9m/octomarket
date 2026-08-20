@@ -237,7 +237,8 @@
                         <div class="small text-muted mb-1"><strong>Research</strong></div>
                         <select class="form-select form-select-sm mb-1" id="researchStrategySelect"></select>
                         <button class="btn btn-plan btn-sm" id="runResearchBtn">RUN EVALUATION</button>
-                        <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:160px;"></div>
+                        <button class="btn btn-plan btn-sm mt-1" id="validateAllBtn">COMPARE ALL STRATEGIES</button>
+                        <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:200px;"></div>
                     </div>
                 </div>
             </div>
@@ -701,6 +702,10 @@
             const panel = document.getElementById('researchReportPanel');
             if (!report) { panel.style.display = 'none'; return; }
             panel.style.display = 'block';
+            if (report.report_type === 'comparison' || report.strategies) {
+                renderComparisonReport(report);
+                return;
+            }
             const best = (report.best_conditions || []).map((x) => `<li>${x}</li>`).join('');
             const weak = (report.weak_conditions || []).map((x) => `<li>${x}</li>`).join('');
             panel.innerHTML = `
@@ -710,6 +715,40 @@
                 <div>Avg decision: ${report.average_decision_score ?? '—'} · Avg outcome: ${report.average_outcome_score ?? '—'}</div>
                 ${best ? `<div class="mt-1"><strong>Best conditions</strong><ul class="mb-0 ps-3">${best}</ul></div>` : ''}
                 ${weak ? `<div class="mt-1"><strong>Weak conditions</strong><ul class="mb-0 ps-3">${weak}</ul></div>` : ''}`;
+        }
+
+        function renderComparisonReport(comparison) {
+            const panel = document.getElementById('researchReportPanel');
+            const rows = (comparison.strategies || []).map((s) =>
+                `<div class="mt-1"><strong>${s.strategy_name}</strong>
+                · Trades ${s.trade_count} · WR ${s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—'}
+                · PF ${s.profit_factor ?? '—'} · Decision ${s.average_decision_score ?? '—'} · Outcome ${s.average_outcome_score ?? '—'}</div>`
+            ).join('');
+            const notes = (comparison.characteristics || []).map((n) => `<li>${n}</li>`).join('');
+            panel.innerHTML = `
+                <strong>Strategy Comparison</strong> · ${comparison.instrument_id} · ${comparison.period}
+                ${rows}
+                ${notes ? `<div class="mt-1"><strong>Observations</strong><ul class="mb-0 ps-3">${notes}</ul></div>` : ''}`;
+        }
+
+        async function runStrategyValidation() {
+            const panel = document.getElementById('researchReportPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Running batch validation…';
+            const resp = await api('/api/research/validate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    instrument_id: selectedInstrumentId,
+                    period: selectedPeriod,
+                    interval: selectedTimeframe,
+                    max_trades: 15,
+                }),
+            });
+            if (resp.error) {
+                panel.textContent = resp.error;
+                return;
+            }
+            renderComparisonReport(resp.comparison);
         }
 
         async function runStrategyResearch() {
@@ -1166,6 +1205,7 @@
         document.getElementById('reviewPlanBtn').onclick = reviewTradePlan;
         document.getElementById('generateStrategyPlanBtn').onclick = generateStrategyPlan;
         document.getElementById('runResearchBtn').onclick = runStrategyResearch;
+        document.getElementById('validateAllBtn').onclick = runStrategyValidation;
         document.getElementById('strategySelect').addEventListener('change', (e) => {
             selectedStrategyId = e.target.value;
             document.getElementById('generateStrategyPlanBtn').style.display = selectedStrategyId ? 'inline-block' : 'none';
