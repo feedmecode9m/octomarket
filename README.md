@@ -52,6 +52,47 @@ VERSION = "0.1.0"
 TAGLINE = "Practice. Analyze. Execute. Improve."
 ```
 
+Copy `env.example` to `.env` for local overrides. Do not commit secrets.
+
+## Local vs production
+
+| | Local | Production |
+|---|---|---|
+| Start | `python app.py` | `gunicorn app:app` (Docker uses `docker-entrypoint.sh`) |
+| Debug | `FLASK_DEBUG` defaults **on** unless `ENV=production` | `ENV=production` and `FLASK_DEBUG=False` |
+| Data | `./data` | `DATA_DIR=/data` (Railway volume mount) |
+| Health | `GET /health` | `GET /health` |
+
+Health response (cheap liveness only — no store scans):
+
+```json
+{"status": "ok", "service": "OctoMarket", "version": "17B"}
+```
+
+### Persistent volume
+
+JSONL stores stay file-backed. Mount a volume at **`/data`** and set `DATA_DIR=/data`.
+
+```text
+/data
+ ├── replay/      records.jsonl, patterns.jsonl
+ ├── learning/    journal.jsonl
+ └── research/    reports.jsonl
+```
+
+TradePlan / OrderEngine remain in-process memory. Production uses **one Gunicorn worker** so those objects are not split across processes.
+
+### Required environment variables (production)
+
+| Variable | Purpose |
+|---|---|
+| `ENV` | Set to `production` (disables debug unless `FLASK_DEBUG` is set) |
+| `FLASK_DEBUG` | Must be `False` in production |
+| `SECRET_KEY` | Flask secret — do not use the repo default |
+| `DATA_DIR` | Persistence root; `/data` when a volume is mounted |
+| `PORT` | Bind port (Railway injects this) |
+| `DEPLOYMENT_GATE` | Optional `/health` version label (default `17B`) |
+
 ## Testing
 
 ```bash
