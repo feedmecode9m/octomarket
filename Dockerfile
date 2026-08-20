@@ -19,10 +19,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-
-RUN mkdir -p /data/replay /data/learning /data/research
+RUN chmod +x /app/docker-entrypoint.sh \
+    && mkdir -p /data/replay /data/learning /data/research
 
 EXPOSE 8080
 
-# Railway injects PORT; bind to it at runtime.
-CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 120 app:app
+CMD ["/app/docker-entrypoint.sh"]
