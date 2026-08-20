@@ -1,0 +1,21 @@
+# Keep build context lean for Railway / Docker.
+.git
+.gitignore
+.cursor
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+data
+logs
+temp
+tmp
+*.md
+!README.md
+PHASE_*
+tests
+.pytest_cache

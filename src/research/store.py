@@ -8,7 +8,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_RESEARCH_DIR = Path(__file__).resolve().parents[2] / "data" / "research"
+from ..utils.paths import get_data_dir
+
 DEFAULT_REPORTS_FILE = "reports.jsonl"
 
 
@@ -16,7 +17,7 @@ class ResearchReportStore:
     """Store strategy research reports as JSON lines."""
 
     def __init__(self, path: Optional[Path] = None):
-        self._path = Path(path) if path else DEFAULT_RESEARCH_DIR / DEFAULT_REPORTS_FILE
+        self._path = Path(path) if path else get_data_dir() / "research" / DEFAULT_REPORTS_FILE
         self._lock = threading.RLock()
         self._reports: Dict[str, Dict[str, Any]] = {}
         self._load()

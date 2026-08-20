@@ -8,7 +8,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_JOURNAL_DIR = Path(__file__).resolve().parents[2] / "data" / "learning"
+from ..utils.paths import get_data_dir
+
 DEFAULT_JOURNAL_FILE = "journal.jsonl"
 
 
@@ -16,7 +17,7 @@ class LearningJournalStore:
     """Append/lookup learning journal entries as JSON lines."""
 
     def __init__(self, path: Optional[Path] = None):
-        self._path = Path(path) if path else DEFAULT_JOURNAL_DIR / DEFAULT_JOURNAL_FILE
+        self._path = Path(path) if path else get_data_dir() / "learning" / DEFAULT_JOURNAL_FILE
         self._lock = threading.RLock()
         self._entries: Dict[str, Dict[str, Any]] = {}
         self._by_record: Dict[str, str] = {}

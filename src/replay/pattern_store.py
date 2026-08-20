@@ -8,7 +8,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_REPLAY_DIR = Path(__file__).resolve().parents[2] / "data" / "replay"
+from ..utils.paths import get_data_dir
+
 DEFAULT_PATTERNS_FILE = "patterns.jsonl"
 
 
@@ -16,7 +17,7 @@ class PatternStore:
     """Store pattern indexes keyed by ReplayRecord id."""
 
     def __init__(self, path: Optional[Path] = None):
-        self._path = Path(path) if path else DEFAULT_REPLAY_DIR / DEFAULT_PATTERNS_FILE
+        self._path = Path(path) if path else get_data_dir() / "replay" / DEFAULT_PATTERNS_FILE
         self._lock = threading.RLock()
         self._patterns: Dict[str, Dict[str, Any]] = {}
         self._load()

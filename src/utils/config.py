@@ -50,8 +50,16 @@ class Config:
     
     def _load_from_environment(self):
         """Load configuration from environment variables."""
-        # Flask Configuration
-        self.flask.debug = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+        # Flask Configuration — production defaults to debug off; local keeps debug on.
+        env_name = (
+            os.environ.get("ENV")
+            or os.environ.get("FLASK_ENV")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+            or "development"
+        ).lower()
+        self.environment = env_name
+        default_debug = "false" if env_name in ("production", "prod") else "true"
+        self.flask.debug = os.environ.get("FLASK_DEBUG", default_debug).lower() == "true"
         self.flask.secret_key = os.environ.get('SECRET_KEY', self.flask.secret_key)
         self.flask.host = os.environ.get('HOST', self.flask.host)
         self.flask.port = int(os.environ.get('PORT', self.flask.port))

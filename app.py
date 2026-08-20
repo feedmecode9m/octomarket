@@ -16,6 +16,11 @@ from src.api.journal_routes import journal_bp
 from src.config.product import get_product, get_product_context
 from src.utils.config import get_config
 import logging
+import os
+
+# Cheap deployment gate label for /health (not product marketing version).
+DEPLOYMENT_GATE = os.environ.get("DEPLOYMENT_GATE", "17B")
+
 
 def create_app():
     """Application factory pattern for creating Flask app."""
@@ -32,6 +37,7 @@ def create_app():
         flask_config = config.get_flask_config()
         app.config.update(flask_config)
         app.config["PRODUCT"] = get_product()
+        app.config["DEPLOYMENT_GATE"] = DEPLOYMENT_GATE
 
         @app.context_processor
         def inject_product():
@@ -54,6 +60,15 @@ def create_app():
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise
+
+    @app.route('/health')
+    def health():
+        """Cheap liveness probe — no store scans or strategy work."""
+        return {
+            "status": "ok",
+            "service": "OctoMarket",
+            "version": app.config.get("DEPLOYMENT_GATE", DEPLOYMENT_GATE),
+        }, 200
 
     @app.route('/')
     def home():
@@ -135,10 +150,13 @@ def create_app():
 
     return app
 
+
+# WSGI entrypoint for gunicorn: `gunicorn app:app`
+app = create_app()
+
 if __name__ == '__main__':
     try:
         config = get_config()
-        app = create_app()
         product = get_product()
 
         host = config.flask.host
