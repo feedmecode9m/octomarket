@@ -66,13 +66,46 @@ class ResearchReportStore:
         with self._lock:
             items = [
                 r for r in self._reports.values()
-                if r.get("strategy_id") == strategy_id
+                if r.get("report_type") == "strategy"
+                and r.get("strategy_id") == strategy_id
                 and (not instrument_id or r.get("instrument_id", "").upper() == instrument_id.upper())
             ]
             if not items:
                 return None
             items.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
             return json.loads(json.dumps(items[0]))
+
+    def list_strategy_reports(
+        self,
+        *,
+        instrument_id: Optional[str] = None,
+        asset_class: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        with self._lock:
+            items = [
+                r for r in self._reports.values()
+                if r.get("report_type") == "strategy"
+                and (not instrument_id or r.get("instrument_id", "").upper() == instrument_id.upper())
+                and (not asset_class or r.get("asset_class", "").upper() == asset_class.upper())
+            ]
+            items.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
+            return [json.loads(json.dumps(i)) for i in items]
+
+    def list_walk_forward(
+        self,
+        *,
+        strategy_id: Optional[str] = None,
+        instrument_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        with self._lock:
+            items = [
+                r for r in self._reports.values()
+                if r.get("report_type") == "walk_forward"
+                and (not strategy_id or r.get("strategy_id") == strategy_id)
+                and (not instrument_id or r.get("instrument_id", "").upper() == instrument_id.upper())
+            ]
+            items.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
+            return [json.loads(json.dumps(i)) for i in items]
 
     def list_all(self) -> List[Dict[str, Any]]:
         with self._lock:

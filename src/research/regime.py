@@ -66,6 +66,9 @@ def _regime_metrics(regime: str, records: List[Dict[str, Any]]) -> Dict[str, Any
     gross_profit = sum((r.get("outcome") or {}).get("pnl") or 0 for r in records if (r.get("outcome") or {}).get("win_loss") == "win")
     gross_loss = abs(sum((r.get("outcome") or {}).get("pnl") or 0 for r in records if (r.get("outcome") or {}).get("win_loss") == "loss"))
 
+    from .confidence import assess_sample_confidence
+
+    confidence = assess_sample_confidence(len(records))
     return {
         "label": REGIME_LABELS.get(regime, regime),
         "trade_count": len(records),
@@ -74,6 +77,8 @@ def _regime_metrics(regime: str, records: List[Dict[str, Any]]) -> Dict[str, Any
         "average_pnl": round(sum(pnls) / len(pnls), 2) if pnls else None,
         "average_decision_score": _avg_int(decision_scores),
         "average_outcome_score": _avg_int(outcome_scores),
+        "confidence": confidence,
+        "confidence_level": confidence["confidence_level"],
     }
 
 

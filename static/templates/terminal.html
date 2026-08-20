@@ -238,6 +238,7 @@
                         <select class="form-select form-select-sm mb-1" id="researchStrategySelect"></select>
                         <button class="btn btn-plan btn-sm" id="runResearchBtn">RUN EVALUATION</button>
                         <button class="btn btn-plan btn-sm mt-1" id="validateAllBtn">COMPARE ALL STRATEGIES</button>
+                        <button class="btn btn-plan btn-sm mt-1" id="recommendStrategyBtn">RECOMMEND FAMILY</button>
                         <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:200px;"></div>
                     </div>
                 </div>
@@ -751,6 +752,39 @@
             renderComparisonReport(resp.comparison);
         }
 
+        async function recommendStrategyFamily() {
+            const panel = document.getElementById('researchReportPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Matching current conditions to research…';
+            const resp = await api('/api/research/recommend', {
+                method: 'POST',
+                body: JSON.stringify({
+                    instrument_id: selectedInstrumentId,
+                    period: selectedPeriod,
+                    timeframe: selectedTimeframe,
+                }),
+            });
+            if (resp.error) {
+                panel.textContent = resp.error;
+                return;
+            }
+            renderRecommendation(resp.recommendation);
+        }
+
+        function renderRecommendation(payload) {
+            const panel = document.getElementById('researchReportPanel');
+            panel.style.display = 'block';
+            const rec = payload.recommendation || {};
+            const ctx = payload.market_context || {};
+            const warnings = (rec.warnings || payload.warnings || []).map((w) => `<li>${w}</li>`).join('');
+            panel.innerHTML = `
+                <strong>Strategy family recommendation</strong> · decision support only
+                <div class="mt-1">Context: ${ctx.trend_state || '—'} · vol ${ctx.volatility_state || '—'} · ${(ctx.active_regimes || []).join(', ') || '—'}</div>
+                <div>Family: ${rec.strategy_family || 'none'} · Confidence: ${rec.confidence || '—'}</div>
+                <div class="mt-1">${rec.narrative || ''}</div>
+                ${warnings ? `<div class="mt-1"><strong>Warnings</strong><ul class="mb-0 ps-3">${warnings}</ul></div>` : ''}`;
+        }
+
         async function runStrategyResearch() {
             const strategyId = document.getElementById('researchStrategySelect')?.value;
             const panel = document.getElementById('researchReportPanel');
@@ -1206,6 +1240,7 @@
         document.getElementById('generateStrategyPlanBtn').onclick = generateStrategyPlan;
         document.getElementById('runResearchBtn').onclick = runStrategyResearch;
         document.getElementById('validateAllBtn').onclick = runStrategyValidation;
+        document.getElementById('recommendStrategyBtn').onclick = recommendStrategyFamily;
         document.getElementById('strategySelect').addEventListener('change', (e) => {
             selectedStrategyId = e.target.value;
             document.getElementById('generateStrategyPlanBtn').style.display = selectedStrategyId ? 'inline-block' : 'none';

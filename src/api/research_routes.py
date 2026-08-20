@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from ..research.runner import get_strategy_backtest_runner
+from ..research.selection import get_adaptive_strategy_selector
 from ..research.store import get_research_report_store
 from ..research.validation import get_strategy_validation_service
 from ..research.walkforward import get_walk_forward_service
@@ -14,6 +15,7 @@ _registry = get_strategy_registry()
 _runner = get_strategy_backtest_runner()
 _validator = get_strategy_validation_service()
 _walkforward = get_walk_forward_service()
+_selector = get_adaptive_strategy_selector()
 _reports = get_research_report_store()
 
 
@@ -153,6 +155,26 @@ def research_walkforward_get(walk_forward_id):
     if not report or report.get("report_type") != "walk_forward":
         return jsonify({"error": "Walk-forward report not found"}), 404
     return jsonify({"walk_forward": report})
+
+
+@research_bp.route("/recommend", methods=["POST"])
+def research_recommend():
+    """Recommend a strategy family from current context and stored research. Decision support only."""
+    data = request.get_json(silent=True) or {}
+    instrument_id = data.get("instrument_id") or data.get("symbol")
+    if not instrument_id:
+        return jsonify({"error": "instrument_id or symbol is required"}), 400
+    try:
+        payload = _selector.recommend(
+            instrument_id,
+            timeframe=data.get("timeframe") or data.get("interval") or "1d",
+            period=data.get("period", "3mo"),
+            min_trades=int(data.get("min_trades", 10)),
+            require_cost_adjusted_edge=bool(data.get("require_cost_adjusted_edge", True)),
+        )
+        return jsonify({"recommendation": payload})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @research_bp.route("/reports", methods=["GET"])

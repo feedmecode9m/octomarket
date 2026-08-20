@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from ..market.instrument import resolve_instrument
 from .dates import resolve_walk_forward_windows
+from .degradation import assess_performance_degradation
 from .runner import StrategyBacktestRunner
 from .store import ResearchReportStore, get_research_report_store
 
@@ -130,6 +131,7 @@ def build_walk_forward_report(
     """Aggregate per-window summaries into a walk-forward research report."""
     characteristics = _walk_forward_characteristics(windows)
     stability = _behavior_stability(windows)
+    degradation = assess_performance_degradation(windows)
 
     return {
         "schema_version": WALK_FORWARD_SCHEMA_VERSION,
@@ -145,6 +147,7 @@ def build_walk_forward_report(
         "period": period,
         "windows": windows,
         "stability": stability,
+        "degradation": degradation,
         "characteristics": characteristics,
     }
 
@@ -170,6 +173,7 @@ def _walk_forward_characteristics(windows: List[Dict[str, Any]]) -> List[str]:
 
 def _behavior_stability(windows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Neutral stability read — not a pass/fail grade."""
+    degradation = assess_performance_degradation(windows)
     pfs = [
         item["report"].get("profit_factor")
         for item in windows
@@ -182,14 +186,11 @@ def _behavior_stability(windows: List[Dict[str, Any]]) -> Dict[str, Any]:
     ]
 
     notes: List[str] = []
-    if len(pfs) >= 2:
+    if degradation["detected"]:
+        notes.extend(degradation["warnings"])
+    elif len(pfs) >= 2:
         if all(pf >= 1.0 for pf in pfs):
             notes.append("Profit factor remained at or above 1.0 in all tested windows.")
-        elif pfs[-1] is not None and pfs[0] is not None and pfs[-1] < pfs[0] * 0.7:
-            notes.append(
-                "Out-of-sample profit factor declined materially vs research window — "
-                "behavior may not generalize under these splits."
-            )
         else:
             notes.append("Profit factor varied across windows — review regime context before trusting results.")
 
@@ -209,6 +210,7 @@ def _behavior_stability(windows: List[Dict[str, Any]]) -> Dict[str, Any]:
             }
             for item in windows
         ],
+        "degradation": assess_performance_degradation(windows),
         "notes": notes,
     }
 
