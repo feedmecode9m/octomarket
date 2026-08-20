@@ -247,6 +247,12 @@
                             <button class="btn btn-plan btn-sm mt-1" id="ignoreRecBtn">IGNORE</button>
                         </div>
                     </div>
+                    <div class="mt-2 pt-2 border-top border-secondary">
+                        <div class="small text-muted mb-1"><strong>Journal Memory</strong></div>
+                        <button class="btn btn-plan btn-sm" id="loadJournalProfileBtn">TRADER PROFILE</button>
+                        <button class="btn btn-plan btn-sm mt-1" id="searchJournalMemoryBtn">SEARCH MEMORY</button>
+                        <div id="journalMemoryPanel" class="coach-review-box mt-1" style="display:none; max-height:220px;"></div>
+                    </div>
                 </div>
             </div>
             <div class="order-ticket-section">
@@ -827,6 +833,11 @@
                     · OOS PF ${m.oos_profit_factor ?? '—'} · Decision ${m.average_decision_score ?? '—'}</div>`
                 ).join('')
                 : '<div class="text-muted mt-1">No matched strategy evidence under reliability filters.</div>';
+            const th = ((payload.trader_history_context || {}).trader_history) || {};
+            const traderBlock = th.narrative
+                ? `<div class="mt-2"><strong>Trader History</strong> · ${th.alignment || '—'}
+                   <div class="mt-1">${th.narrative}</div></div>`
+                : '';
             panel.innerHTML = `
                 <strong>Market Context</strong>
                 <div class="mt-1">Trend: ${ctx.trend_state || '—'} · Volatility: ${ctx.volatility_state || '—'}
@@ -837,8 +848,57 @@
                 ${evidence}
                 ${top.trade_count != null ? `<div class="text-muted mt-1">Primary sample: ${top.trade_count} trades · PF ${top.profit_factor ?? '—'} · OOS PF ${top.oos_profit_factor ?? '—'}</div>` : ''}
                 <div class="mt-1">${rec.narrative || ''}</div>
+                ${traderBlock}
                 ${warnings ? `<div class="mt-1"><strong>Warnings</strong><ul class="mb-0 ps-3">${warnings}</ul></div>` : ''}`;
             actions.style.display = rec.strategy_family ? 'block' : 'none';
+        }
+
+        async function loadJournalTraderProfile() {
+            const panel = document.getElementById('journalMemoryPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Loading trader profile…';
+            const data = await api('/api/learning/journal/profile?min_trades=5');
+            if (data.error) {
+                panel.textContent = data.error;
+                return;
+            }
+            const p = data.profile || {};
+            const strengths = (p.strengths || []).map((s) =>
+                `<li>${s.area}: ${s.evidence} · avg R ${s.avg_R ?? '—'} · decision ${s.avg_decision_score ?? '—'}</li>`
+            ).join('');
+            const weaknesses = (p.weaknesses || []).map((s) =>
+                `<li>${s.area}: ${s.evidence} · avg R ${s.avg_R ?? '—'} · decision ${s.avg_decision_score ?? '—'}</li>`
+            ).join('');
+            panel.innerHTML = `
+                <strong>Trader Profile</strong> · ${p.sample_size ?? 0} journal entries
+                <div class="text-muted mt-1">${p.disclaimer || ''}</div>
+                <div class="mt-1"><strong>Strengths</strong>${strengths ? `<ul class="mb-0 ps-3">${strengths}</ul>` : '<div class="text-muted">Insufficient samples</div>'}</div>
+                <div class="mt-1"><strong>Weaknesses</strong>${weaknesses ? `<ul class="mb-0 ps-3">${weaknesses}</ul>` : '<div class="text-muted">Insufficient samples</div>'}</div>`;
+        }
+
+        async function searchJournalMemory() {
+            const panel = document.getElementById('journalMemoryPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Searching journal memory…';
+            const params = new URLSearchParams({
+                instrument_id: selectedInstrumentId || '',
+                limit: '20',
+            });
+            const data = await api(`/api/learning/journal/search?${params.toString()}`);
+            if (data.error) {
+                panel.textContent = data.error;
+                return;
+            }
+            const cf = data.common_factors || {};
+            const rows = (data.entries || []).slice(0, 8).map((e) =>
+                `<div class="mt-1">${e.date || '—'} · ${e.instrument_id || '—'} · ${e.strategy_id || 'manual'}
+                · ${(e.outcome_snapshot || {}).win_loss || '—'} · R ${(e.outcome_snapshot || {}).r_multiple ?? '—'}</div>`
+            ).join('');
+            panel.innerHTML = `
+                <strong>Journal Search</strong> · ${data.total_matched ?? data.count ?? 0} matched
+                <div class="text-muted mt-1">Common: regime ${cf.top_regime || '—'} · strategy ${cf.top_strategy || '—'}
+                · avg decision ${cf.average_decision_score ?? '—'} · avg R ${cf.average_r_multiple ?? '—'}</div>
+                ${rows || '<div class="text-muted mt-1">No journal entries for this instrument yet.</div>'}`;
         }
 
         function ignoreRecommendation() {
@@ -1379,6 +1439,8 @@
         document.getElementById('runResearchBtn').onclick = runStrategyResearch;
         document.getElementById('validateAllBtn').onclick = runStrategyValidation;
         document.getElementById('recommendStrategyBtn').onclick = recommendStrategyFamily;
+        document.getElementById('loadJournalProfileBtn').onclick = loadJournalTraderProfile;
+        document.getElementById('searchJournalMemoryBtn').onclick = searchJournalMemory;
         document.getElementById('createPlanFromRecBtn').onclick = createPlanFromRecommendation;
         document.getElementById('ignoreRecBtn').onclick = ignoreRecommendation;
         document.getElementById('strategySelect').addEventListener('change', (e) => {

@@ -9,6 +9,11 @@ from .journal_service import (
 )
 from .journal_store import get_learning_journal_store, reset_learning_journal_store
 from .journal_entry import JOURNAL_SCHEMA_VERSION
+from .journal_analytics import (
+    JournalAnalyticsService,
+    get_journal_analytics_service,
+    reset_journal_analytics_service,
+)
 
 __all__ = [
     "get_all_lessons",
@@ -24,4 +29,7 @@ __all__ = [
     "get_learning_journal_store",
     "reset_learning_journal_store",
     "JOURNAL_SCHEMA_VERSION",
+    "JournalAnalyticsService",
+    "get_journal_analytics_service",
+    "reset_journal_analytics_service",
 ]

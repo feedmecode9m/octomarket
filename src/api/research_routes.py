@@ -174,6 +174,22 @@ def research_recommend():
             min_trades=int(data.get("min_trades", 10)),
             require_cost_adjusted_edge=bool(data.get("require_cost_adjusted_edge", True)),
         )
+        # 17B: attach read-only trader history context — never alters ranking or execution.
+        try:
+            from ..learning.journal_analytics import get_journal_analytics_service
+
+            rec = payload.get("recommendation") or {}
+            payload["trader_history_context"] = get_journal_analytics_service().recommendation_context(
+                instrument_id=payload.get("instrument_id") or instrument_id,
+                strategy_family=rec.get("strategy_family"),
+                min_trades=5,
+            )
+        except Exception:
+            payload["trader_history_context"] = {
+                "decision_support_only": True,
+                "read_only": True,
+                "trader_history": {"alignment": "insufficient", "narrative": "Journal context unavailable."},
+            }
         return jsonify({"recommendation": payload})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

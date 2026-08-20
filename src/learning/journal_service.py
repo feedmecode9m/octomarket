@@ -240,9 +240,11 @@ def get_learning_journal_service() -> LearningJournalService:
 
 def reset_learning_journal_service() -> None:
     global _service_instance
+    from .journal_analytics import reset_journal_analytics_service
     from .journal_store import reset_learning_journal_store
 
     reset_learning_journal_store()
+    reset_journal_analytics_service()
     _service_instance = None
 
 

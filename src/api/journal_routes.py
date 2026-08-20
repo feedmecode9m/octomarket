@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
+from ..learning.journal_analytics import get_journal_analytics_service
 from ..learning.journal_service import get_learning_journal_service
 from ..replay.replay_memory import get_replay_memory
 
@@ -15,6 +16,58 @@ def list_journal_entries():
     journal = get_learning_journal_service()
     entries = journal.list_entries(limit=max(1, min(limit, 200)), instrument_id=instrument_id)
     return jsonify({"entries": entries, "count": len(entries)})
+
+
+@journal_bp.route("/search", methods=["GET"])
+def journal_search():
+    """Filter journal entries — analytics only, no execution side effects."""
+    args = request.args
+    result = get_journal_analytics_service().search(
+        instrument_id=args.get("instrument_id") or args.get("symbol"),
+        strategy_id=args.get("strategy_id") or args.get("strategy"),
+        regime=args.get("regime"),
+        result=args.get("result") or args.get("win_loss"),
+        date_from=args.get("date_from"),
+        date_to=args.get("date_to"),
+        decision_score_min=args.get("decision_score_min", type=float),
+        decision_score_max=args.get("decision_score_max", type=float),
+        outcome_score_min=args.get("outcome_score_min", type=float),
+        outcome_score_max=args.get("outcome_score_max", type=float),
+        mode=args.get("mode"),
+        limit=max(1, min(args.get("limit", 100, type=int), 500)),
+    )
+    return jsonify(result)
+
+
+@journal_bp.route("/profile", methods=["GET"])
+def journal_trader_profile():
+    min_trades = request.args.get("min_trades", 5, type=int)
+    profile = get_journal_analytics_service().trader_profile(
+        min_trades=max(2, min(min_trades, 50))
+    )
+    return jsonify({"profile": profile})
+
+
+@journal_bp.route("/improvements", methods=["GET"])
+def journal_improvements():
+    min_trades = request.args.get("min_trades", 5, type=int)
+    payload = get_journal_analytics_service().improvement_tracking(
+        min_trades_per_period=max(2, min(min_trades, 50)),
+        split_date=request.args.get("split_date"),
+    )
+    return jsonify(payload)
+
+
+@journal_bp.route("/recommendation-context", methods=["GET"])
+def journal_recommendation_context():
+    """Read-only trader history context for recommendations. Never creates plans/orders."""
+    ctx = get_journal_analytics_service().recommendation_context(
+        instrument_id=request.args.get("instrument_id") or request.args.get("symbol"),
+        strategy_id=request.args.get("strategy_id"),
+        strategy_family=request.args.get("strategy_family"),
+        min_trades=request.args.get("min_trades", 5, type=int),
+    )
+    return jsonify({"context": ctx})
 
 
 @journal_bp.route("/patterns", methods=["GET"])
