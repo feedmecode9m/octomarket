@@ -362,6 +362,10 @@
             };
             if (type === 'limit' || type === 'stop_limit') payload.limit_price = price;
             if (type === 'stop_market' || type === 'stop_limit') payload.stop_price = price;
+            // Keep LIVE market fills linked to the active TradePlan for Decision Review.
+            if (currentPlanId) {
+                payload.trade_plan = { plan_id: currentPlanId };
+            }
             return payload;
         }
 
@@ -1492,6 +1496,10 @@
             loadStats();
             const session = await api('/api/session/state');
             updateReplayDisplay(session);
+            if (new URLSearchParams(location.search).get('focus') === 'replay') {
+                const el = document.getElementById('startSessionBtn');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         })();
     </script>
 </body>

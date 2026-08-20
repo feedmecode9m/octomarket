@@ -42,11 +42,27 @@ def _record_fill_in_journal(order: dict, fill: dict):
             trade_plan=order.get("trade_plan"),
         )
         _record_replay_fill(order, fill, exit_reason=None)
+        _cancel_duplicate_plan_entries(order)
     elif role in ("stop_loss", "take_profit") and order["side"] == "sell":
         parent_id = order.get("parent_id")
         if parent_id:
             _journal.close_by_order_id(parent_id, fill.get("fill_price", 0))
         _record_replay_fill(order, fill, exit_reason=role)
+
+
+def _cancel_duplicate_plan_entries(filled_order: dict) -> None:
+    """If a plan-linked entry fills (e.g. market ticket), cancel leftover plan limit entries."""
+    plan_id = (filled_order.get("trade_plan") or {}).get("plan_id")
+    if not plan_id:
+        return
+    for other in _orders.get_pending():
+        if other["id"] == filled_order["id"]:
+            continue
+        if other.get("role", "entry") != "entry":
+            continue
+        if (other.get("trade_plan") or {}).get("plan_id") != plan_id:
+            continue
+        _orders.cancel_order(other["id"])
 
 
 def _record_replay_fill(order: dict, fill: dict, exit_reason: Optional[str]):

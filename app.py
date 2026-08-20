@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request
 from src.api.routes import api_bp
 from src.api.ai_routes import ai_bp
 from src.api.simulation_routes import simulation_bp
@@ -81,12 +81,9 @@ def create_app():
 
     @app.route('/replay')
     def replay():
-        """Market replay simulator."""
-        try:
-            return render_template('index.html', active_nav='replay')
-        except Exception as e:
-            logging.error(f"Error rendering replay: {e}")
-            return render_template('500.html'), 500
+        """Alias to Terminal Replay — single canonical Replay product (18A.3)."""
+        # Do not serve the legacy index.html "Start Simulator" surface.
+        return redirect("/terminal?focus=replay", code=302)
 
     @app.route('/strategy-lab')
     def strategy_lab():

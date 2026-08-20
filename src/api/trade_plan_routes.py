@@ -21,6 +21,13 @@ def _current_prices(for_symbol=None) -> dict:
     return resolve_execution_prices(for_symbol=for_symbol)
 
 
+@trade_plan_bp.route("", methods=["GET"])
+def list_trade_plans():
+    """Collection endpoint — must not fall through to MethodNotAllowed → 500 HTML."""
+    plans = _plans.list_plans()
+    return jsonify({"plans": plans, "count": len(plans)})
+
+
 @trade_plan_bp.route("", methods=["POST"])
 def create_trade_plan():
     data = request.get_json(silent=True) or {}
@@ -122,10 +129,15 @@ def create_order_from_plan(plan_id):
         return jsonify({"error": str(e)}), 400
 
     prices = _current_prices()
-    price = prices.get(plan["symbol"], plan["entry"]["price"])
+    price = float(prices.get(plan["symbol"]) or (plan.get("entry") or {}).get("price") or 0)
     if payload["order_type"] == "market" and price > 0:
-        _executor.process_market_order(order, price)
-        order = _orders.get_order(order["id"])
+        fill_result = _executor.process_market_order(order, price)
+        order = _orders.get_order(order["id"]) or order
+        if fill_result.get("status") == "FILLED":
+            from .execution_routes import _record_fill_in_journal
+
+            _record_fill_in_journal(order, fill_result.get("fill") or {})
+            order = _orders.get_order(order["id"]) or order
 
     updated = _plans.mark_order_created(plan_id, order["id"])
     return jsonify({

@@ -55,9 +55,13 @@ class TestBrandingRoutes(unittest.TestCase):
         self.assertIn(b"OctoMarket", resp.data)
 
     def test_replay_page(self):
-        resp = self.client.get("/replay")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"OctoMarket", resp.data)
+        resp = self.client.get("/replay", follow_redirects=False)
+        self.assertIn(resp.status_code, (301, 302))
+        self.assertIn("/terminal", resp.headers.get("Location", ""))
+        followed = self.client.get("/replay", follow_redirects=True)
+        self.assertEqual(followed.status_code, 200)
+        self.assertIn(b"OctoMarket", followed.data)
+        self.assertNotIn(b"Start Simulator", followed.data)
 
     def test_terminal_page(self):
         resp = self.client.get("/terminal")

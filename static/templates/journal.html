@@ -12,8 +12,11 @@
         .journal-entry { background: var(--om-bg-tertiary); border: 1px solid var(--om-border); padding: 1rem; margin-bottom: 0.75rem; border-radius: var(--om-radius); font-size: 0.85rem; }
         .journal-entry .pnl-win { color: var(--om-success); }
         .journal-entry .pnl-loss { color: var(--om-danger); }
-        .summary-bar { display: flex; gap: 2rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: var(--om-text-muted); }
+        .summary-bar { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: var(--om-text-muted); }
         .summary-bar strong { color: var(--om-text); }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+        .toolbar input, .toolbar select { font-size: 0.85rem; max-width: 10rem; }
+        .profile-box { background: var(--om-bg-tertiary); border: 1px solid var(--om-border); padding: 1rem; border-radius: var(--om-radius); margin-bottom: 1.25rem; font-size: 0.85rem; }
     </style>
 </head>
 <body class="om-body">
@@ -21,34 +24,125 @@
     {% include 'partials/octo_nav.html' %}
     <div class="content">
         <h2><i class="fas fa-book"></i> {{ module_labels.journal }}</h2>
-        <p class="text-muted mb-3">Trade reviews, plans, and execution analysis.</p>
+        <p class="text-muted mb-3">Deterministic learning journal from closed planned trades — same source as Terminal Decision Review.</p>
         <div class="summary-bar" id="journalSummary">Loading...</div>
+        <div class="toolbar">
+            <input id="filterInstrument" class="form-control form-control-sm" placeholder="Instrument">
+            <select id="filterResult" class="form-select form-select-sm">
+                <option value="">All results</option>
+                <option value="win">Win</option>
+                <option value="loss">Loss</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" id="searchBtn" type="button">Search</button>
+            <button class="btn btn-sm btn-outline-secondary" id="profileBtn" type="button">Profile</button>
+            <button class="btn btn-sm btn-outline-secondary" id="improveBtn" type="button">Improvements</button>
+            <a class="btn btn-sm btn-outline-primary" href="/terminal">Open Terminal</a>
+        </div>
+        <div class="profile-box" id="analyticsPanel" style="display:none;"></div>
         <div id="journalEntries">Loading entries...</div>
     </div>
     <script>
-        fetch('/api/ai/journal').then(r => r.json()).then(data => {
-            const s = data.summary || {};
-            document.getElementById('journalSummary').innerHTML = `
-                <span>Entries: <strong>${s.total_entries || 0}</strong></span>
-                <span>Closed: <strong>${s.closed_trades || 0}</strong></span>
-                <span>Win Rate: <strong>${s.win_rate || 0}%</strong></span>
-                <span>Total P/L: <strong>$${(s.total_pnl || 0).toFixed(2)}</strong></span>`;
+        async function api(url) {
+            const resp = await fetch(url);
+            return resp.json();
+        }
+
+        function outcomeOf(e) {
+            return e.outcome_snapshot || e.outcome || {};
+        }
+
+        function renderEntries(entries) {
             const el = document.getElementById('journalEntries');
-            const entries = data.entries || [];
-            if (!entries.length) { el.innerHTML = '<p class="text-muted">No journal entries yet. Trade in the Terminal to build your journal.</p>'; return; }
-            el.innerHTML = entries.slice().reverse().map(e => {
-                const pnl = e.result ? e.result.pnl : null;
-                const pnlClass = pnl >= 0 ? 'pnl-win' : 'pnl-loss';
-                const plan = e.trade_plan || {};
+            if (!entries.length) {
+                el.innerHTML = '<p class="text-muted">No learning journal entries yet. Create a Trade Plan in the Terminal, execute and close it to generate Decision Review evidence.</p>';
+                return;
+            }
+            el.innerHTML = entries.map((e) => {
+                const outcome = outcomeOf(e);
+                const pnl = outcome.pnl;
+                const rMult = outcome.r_multiple;
+                const pnlClass = (pnl == null || pnl >= 0) ? 'pnl-win' : 'pnl-loss';
+                const scoring = e.scoring_snapshot || e.scoring || {};
+                const lesson = e.lesson || '';
                 return `<div class="journal-entry">
-                    <strong>${e.symbol}</strong> ${e.type.toUpperCase()} × ${e.quantity} @ $${e.entry_price.toFixed(2)}
-                    ${e.exit_price ? ` → $${e.exit_price.toFixed(2)}` : ' (open)'}
-                    ${pnl !== null ? `<span class="${pnlClass} ms-2">$${pnl.toFixed(2)}</span>` : ''}
-                    <div class="text-muted mt-1">${plan.setup || e.reason || ''}</div>
-                    ${e.execution_review ? `<div class="mt-1 small">Review: entry ${e.execution_review.entry_good ? '✓' : '✗'}, risk ${e.execution_review.risk_controlled ? '✓' : '✗'}, exit ${e.execution_review.exit_disciplined ? '✓' : '✗'}</div>` : ''}
+                    <strong>${e.instrument_id || e.symbol || '—'}</strong>
+                    · ${e.date || '—'}
+                    · ${e.strategy_id || e.strategy_name || 'manual'}
+                    · ${(outcome.win_loss || '—')}
+                    ${pnl != null ? `<span class="${pnlClass} ms-2">$${Number(pnl).toFixed(2)}</span>` : ''}
+                    ${rMult != null ? `<span class="text-muted ms-2">R ${Number(rMult).toFixed(2)}</span>` : ''}
+                    ${scoring.decision_score != null ? `<span class="text-muted ms-2">Decision ${scoring.decision_score}</span>` : ''}
+                    <div class="text-muted mt-1">${e.decision_summary || ''}</div>
+                    ${lesson ? `<div class="mt-1"><strong>Lesson:</strong> ${lesson}</div>` : ''}
+                    ${(e.repeat || e.avoid) ? `<div class="mt-1 small text-muted">Repeat: ${(e.repeat || []).join('; ') || '—'} · Avoid: ${(e.avoid || []).join('; ') || '—'}</div>` : ''}
+                    ${e.plan_id ? `<div class="mt-1 small"><a href="/terminal">Review plan ${e.plan_id.slice(0, 8)}…</a></div>` : ''}
                 </div>`;
             }).join('');
-        });
+        }
+
+        async function loadList() {
+            const data = await api('/api/learning/journal?limit=50');
+            const entries = data.entries || [];
+            const wins = entries.filter((e) => (outcomeOf(e).win_loss || '') === 'win').length;
+            const closed = entries.filter((e) => outcomeOf(e).win_loss).length;
+            const pnl = entries.reduce((s, e) => s + (Number(outcomeOf(e).pnl) || 0), 0);
+            document.getElementById('journalSummary').innerHTML = `
+                <span>Entries: <strong>${data.count ?? entries.length}</strong></span>
+                <span>Closed scored: <strong>${closed}</strong></span>
+                <span>Wins in view: <strong>${wins}</strong></span>
+                <span>Total P/L (view): <strong>$${pnl.toFixed(2)}</strong></span>`;
+            renderEntries(entries);
+        }
+
+        async function searchJournal() {
+            const params = new URLSearchParams({ limit: '50' });
+            const inst = document.getElementById('filterInstrument').value.trim();
+            const result = document.getElementById('filterResult').value;
+            if (inst) params.set('instrument_id', inst);
+            if (result) params.set('result', result);
+            const data = await api(`/api/learning/journal/search?${params.toString()}`);
+            document.getElementById('analyticsPanel').style.display = 'none';
+            document.getElementById('journalSummary').innerHTML = `
+                <span>Matched: <strong>${data.total_matched ?? (data.entries || []).length}</strong></span>`;
+            renderEntries(data.entries || []);
+        }
+
+        async function loadProfile() {
+            const panel = document.getElementById('analyticsPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Loading profile…';
+            const data = await api('/api/learning/journal/profile?min_trades=3');
+            const p = data.profile || {};
+            const strengths = (p.strengths || []).map((s) =>
+                `<li>${s.area}: ${s.evidence}</li>`).join('');
+            const weaknesses = (p.weaknesses || []).map((s) =>
+                `<li>${s.area}: ${s.evidence}</li>`).join('');
+            panel.innerHTML = `
+                <strong>Trader Profile</strong> · ${p.sample_size ?? 0} entries
+                <div class="text-muted mt-1">${p.disclaimer || 'Deterministic analytics only — no AI generation.'}</div>
+                <div class="mt-1"><strong>Strengths</strong>${strengths ? `<ul class="mb-0 ps-3">${strengths}</ul>` : '<div class="text-muted">Insufficient samples</div>'}</div>
+                <div class="mt-1"><strong>Weaknesses</strong>${weaknesses ? `<ul class="mb-0 ps-3">${weaknesses}</ul>` : '<div class="text-muted">Insufficient samples</div>'}</div>`;
+        }
+
+        async function loadImprovements() {
+            const panel = document.getElementById('analyticsPanel');
+            panel.style.display = 'block';
+            panel.textContent = 'Loading improvements…';
+            const data = await api('/api/learning/journal/improvements?min_trades=2');
+            const findings = data.findings || data.improvements || [];
+            panel.innerHTML = `
+                <strong>Improvement Tracking</strong>
+                ${findings.length
+                    ? `<ul class="mb-0 ps-3 mt-1">${findings.map((f) =>
+                        `<li>${typeof f === 'string' ? f : (f.summary || f.finding || JSON.stringify(f))}</li>`
+                      ).join('')}</ul>`
+                    : '<div class="text-muted mt-1">Not enough journal history yet.</div>'}`;
+        }
+
+        document.getElementById('searchBtn').onclick = searchJournal;
+        document.getElementById('profileBtn').onclick = loadProfile;
+        document.getElementById('improveBtn').onclick = loadImprovements;
+        loadList();
     </script>
 </body>
 </html>

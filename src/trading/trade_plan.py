@@ -316,6 +316,11 @@ class TradePlanManager:
             items = [p for p in self._plans.values() if p["symbol"] == symbol or p.get("instrument_id") == symbol]
             return deepcopy(sorted(items, key=lambda p: p["created_at"], reverse=True))
 
+    def list_plans(self) -> List[Dict[str, Any]]:
+        """Return all trade plans (newest first)."""
+        with self._lock:
+            return deepcopy(sorted(self._plans.values(), key=lambda p: p["created_at"], reverse=True))
+
     def update_plan(self, plan_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:
             plan = self._plans.get(plan_id)
