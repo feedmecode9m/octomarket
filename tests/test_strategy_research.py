@@ -56,8 +56,11 @@ class TestStrategyResearchRunner(unittest.TestCase):
             records=[],
             equity_curve=[{"equity": 10000}, {"equity": 9800}, {"equity": 10100}],
         )
-        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(report["schema_version"], 3)
         self.assertIn("regime_performance", report)
+        self.assertIn("benchmark_comparison", report)
+        self.assertIn("confidence", report)
+        self.assertIn("transaction_costs", report)
         self.assertIn("report_id", report)
         self.assertIn("average_decision_score", report)
         self.assertIn("best_conditions", report)
@@ -117,7 +120,7 @@ class TestStrategyResearchRunner(unittest.TestCase):
         for report in (r1, r2):
             self.assertIn("average_decision_score", report)
             self.assertIn("profit_factor", report)
-            self.assertEqual(report["schema_version"], 2)
+            self.assertEqual(report["schema_version"], 3)
         temp.cleanup()
 
     @mock.patch("src.market.yahoo_provider.DataFetcher")

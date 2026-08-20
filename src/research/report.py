@@ -8,8 +8,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .regime import aggregate_regime_performance
+from .confidence import assess_sample_confidence
+from .costs import gross_profit_metrics, summarize_transaction_costs
 
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 
 
 def new_report_id() -> str:
@@ -28,6 +30,9 @@ def build_strategy_report(
     records: List[Dict[str, Any]],
     equity_curve: List[Dict[str, Any]],
     continuous_id: Optional[str] = None,
+    benchmark_comparison: Optional[Dict[str, Any]] = None,
+    transaction_costs: Optional[Dict[str, Any]] = None,
+    initial_cash: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Aggregate closed ReplayRecords into a StrategyReport."""
     closed = [r for r in records if r.get("status") == "closed"]
@@ -56,7 +61,11 @@ def build_strategy_report(
     best, weak = _condition_analysis(closed)
     regime_performance = aggregate_regime_performance(closed)
 
-    return {
+    total_costs = (transaction_costs or {}).get("total_costs") or 0.0
+    gross_metrics = gross_profit_metrics(closed, total_costs)
+    confidence = assess_sample_confidence(len(closed))
+
+    report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "strategy",
         "report_id": new_report_id(),
@@ -69,6 +78,7 @@ def build_strategy_report(
         "timeframe": timeframe,
         "period": period,
         "date_range": date_range,
+        "initial_cash": initial_cash,
         "trade_count": len(closed),
         "win_rate": win_rate,
         "profit_factor": profit_factor,
@@ -86,7 +96,12 @@ def build_strategy_report(
         "weak_conditions": weak,
         "regime_performance": regime_performance,
         "record_ids": [r["id"] for r in closed],
+        "benchmark_comparison": benchmark_comparison,
+        "transaction_costs": transaction_costs,
+        "gross_metrics": gross_metrics,
+        "confidence": confidence,
     }
+    return report
 
 
 def _avg_int(values: List[int]) -> Optional[int]:

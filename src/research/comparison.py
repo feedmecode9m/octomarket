@@ -80,6 +80,10 @@ def _strategy_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         "best_conditions": report.get("best_conditions") or [],
         "weak_conditions": report.get("weak_conditions") or [],
         "regime_performance": report.get("regime_performance") or {},
+        "benchmark_comparison": report.get("benchmark_comparison"),
+        "confidence": report.get("confidence"),
+        "transaction_costs": report.get("transaction_costs"),
+        "gross_metrics": report.get("gross_metrics"),
     }
 
 

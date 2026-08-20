@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterator, Optional
 from ..replay.replay_memory import ReplayMemory
 from ..replay.replay_store import ReplayStore
 from ..simulation.paper_portfolio import PaperPortfolio
+from .costs import TransactionCostModel
 from ..simulation.session import MarketSession
 from ..strategies.engine import StrategyEngine
 from ..trading.execution import ExecutionSimulator
@@ -39,6 +40,7 @@ def isolated_research_environment(
     *,
     store_path: Optional[Path] = None,
     initial_cash: float = 10000.0,
+    cost_model: Optional[TransactionCostModel] = None,
 ) -> Iterator[ResearchEnvironment]:
     """Patch global trading/replay services to isolated instances for one research run."""
     temp = None
@@ -50,7 +52,12 @@ def isolated_research_environment(
     memory = ReplayMemory(store=store)
     plans = TradePlanManager(record_replay=True, replay_memory=memory)
     orders = OrderEngine()
-    portfolio = PaperPortfolio(initial_cash=initial_cash)
+    model = cost_model or TransactionCostModel()
+    portfolio = PaperPortfolio(
+        initial_cash=initial_cash,
+        commission_rate=model.commission_rate,
+        slippage_rate=model.effective_slippage_rate(),
+    )
     portfolio.reset(initial_cash)
     executor = ExecutionSimulator(order_engine=orders, portfolio=portfolio)
     engine = StrategyEngine(plan_manager=plans)

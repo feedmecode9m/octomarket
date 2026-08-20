@@ -7,7 +7,10 @@ from typing import Any, Dict, List, Optional
 from ..market.instrument import resolve_instrument
 from ..replay.replay_session import get_replay_session
 from ..strategies.registry import get_strategy_registry
+from .benchmark import compute_benchmark_comparison
 from .context import ResearchEnvironment, isolated_research_environment
+from .costs import TransactionCostModel, summarize_transaction_costs
+from .dates import apply_session_date_window
 from .report import build_strategy_report
 from .store import ResearchReportStore, get_research_report_store
 
@@ -33,6 +36,9 @@ class StrategyBacktestRunner:
         cooldown_bars: int = 1,
         max_trades: Optional[int] = None,
         persist_report: bool = True,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        cost_model: Optional[TransactionCostModel] = None,
     ) -> Dict[str, Any]:
         strategy = self._registry.get(strategy_id)
         if not strategy:
@@ -44,7 +50,9 @@ class StrategyBacktestRunner:
                 f"Strategy '{strategy_id}' does not support {instrument.asset_class.value}"
             )
 
-        with isolated_research_environment(initial_cash=initial_cash) as env:
+        model = cost_model or TransactionCostModel.for_asset_class(instrument.asset_class.value)
+
+        with isolated_research_environment(initial_cash=initial_cash, cost_model=model) as env:
             report = self._execute_run(
                 env,
                 strategy_id=strategy_id,
@@ -58,6 +66,10 @@ class StrategyBacktestRunner:
                 min_bars=strategy.min_bars,
                 cooldown_bars=cooldown_bars,
                 max_trades=max_trades,
+                start_date=start_date,
+                end_date=end_date,
+                cost_model=model,
+                initial_cash=initial_cash,
             )
 
         if persist_report:
@@ -79,6 +91,10 @@ class StrategyBacktestRunner:
         min_bars: int,
         cooldown_bars: int,
         max_trades: Optional[int],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        cost_model: Optional[TransactionCostModel] = None,
+        initial_cash: float = 10000.0,
     ) -> Dict[str, Any]:
         replay = get_replay_session()
         replay.reset()
@@ -90,10 +106,19 @@ class StrategyBacktestRunner:
             reset_portfolio=True,
         )
 
+        window_range = apply_session_date_window(
+            replay._session,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if window_range.get("start"):
+            date_range = window_range
+        else:
+            date_range = {"start": None, "end": None}
+
         closed_before = 0
         cooldown = 0
         trade_count = 0
-        date_range = {"start": None, "end": None}
 
         while True:
             state = replay.step()
@@ -148,6 +173,19 @@ class StrategyBacktestRunner:
                 trade_count += 1
 
         self._finalize_open_position(env, symbol, replay.get_state())
+        ohlcv = replay._session.get_ohlcv_frame(symbol)
+        cost_summary = summarize_transaction_costs(
+            cost_model=cost_model or TransactionCostModel.for_asset_class(asset_class),
+            total_commission=env.portfolio.total_commissions,
+            total_slippage=env.portfolio.total_slippage,
+            trade_count=len([r for r in env.store.list_all() if r.get("status") == "closed"]),
+        )
+        benchmark = compute_benchmark_comparison(
+            ohlcv=ohlcv,
+            equity_curve=env.equity_curve,
+            initial_cash=initial_cash,
+            asset_class=asset_class,
+        )
         replay.reset()
 
         records = env.store.list_all()
@@ -162,6 +200,9 @@ class StrategyBacktestRunner:
             date_range=date_range,
             records=records,
             equity_curve=env.equity_curve,
+            benchmark_comparison=benchmark,
+            transaction_costs=cost_summary,
+            initial_cash=initial_cash,
         )
 
     def _has_open_exposure(self, env: ResearchEnvironment, symbol: str) -> bool:

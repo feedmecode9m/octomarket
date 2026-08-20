@@ -22,9 +22,13 @@ class ResearchReportStore:
         self._load()
 
     def save(self, report: Dict[str, Any]) -> Dict[str, Any]:
-        report_id = report.get("comparison_id") or report.get("report_id")
+        report_id = (
+            report.get("comparison_id")
+            or report.get("walk_forward_id")
+            or report.get("report_id")
+        )
         if not report_id:
-            raise ValueError("Report must include report_id or comparison_id")
+            raise ValueError("Report must include report_id, comparison_id, or walk_forward_id")
         with self._lock:
             self._reports[report_id] = json.loads(json.dumps(report))
             self._persist()
@@ -90,7 +94,7 @@ class ResearchReportStore:
                 if not line:
                     continue
                 report = json.loads(line)
-                rid = report.get("comparison_id") or report.get("report_id")
+                rid = report.get("comparison_id") or report.get("walk_forward_id") or report.get("report_id")
                 if rid:
                     self._reports[rid] = report
 
