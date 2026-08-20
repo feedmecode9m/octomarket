@@ -22,9 +22,13 @@ class CandleEngine:
         provider: Optional[MarketDataProvider] = None,
     ):
         self._lock = threading.RLock()
-        self._session = session or get_market_session()
+        self._session_override = session
         self._provider = provider or get_market_data_provider()
         self._cache: Dict[str, pd.DataFrame] = {}
+
+    @property
+    def _session(self) -> MarketSession:
+        return self._session_override if self._session_override is not None else get_market_session()
 
     def get_candles(
         self,

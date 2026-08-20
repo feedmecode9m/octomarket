@@ -195,5 +195,65 @@ class TestStrategyResearchAPI(unittest.TestCase):
         self.assertIsNone(plan.get("strategy_id"))
 
 
+class TestResearchIntegrity(unittest.TestCase):
+    @mock.patch("src.market.yahoo_provider.DataFetcher")
+    def test_research_does_not_contaminate_live_state(self, MockFetcher):
+        MockFetcher.return_value.get_real_time_data.return_value = _trending_ohlcv(80)
+        from src.ai_agent.trade_journal import get_trade_journal
+        from src.charting.chart_state import get_chart_state
+        from src.replay.replay_session import get_replay_session
+        from src.research.runner import StrategyBacktestRunner
+        from src.research.store import ResearchReportStore
+        from src.simulation.session import get_market_session
+
+        live = get_market_session()
+        live.start(["AAPL"], period="1mo")
+        live.step()
+        live_index = live.get_session_index()
+        live_max = live._max_length
+        get_chart_state().update(instrument_id="AAPL", timeframe="1d", period="1mo")
+        journal = get_trade_journal()
+        journal.record("AAPL", "buy", 180, 1, "live note")
+        journal_count = len(journal.get_all())
+        get_replay_session().set_mode("live_paper")
+
+        temp = tempfile.TemporaryDirectory()
+        StrategyBacktestRunner(report_store=ResearchReportStore(path=Path(temp.name) / "r.jsonl")).run(
+            "futures_trend",
+            "ESZ26",
+            max_trades=2,
+            persist_report=False,
+        )
+
+        self.assertEqual(get_market_session().get_session_index(), live_index)
+        self.assertEqual(get_market_session()._max_length, live_max)
+        self.assertEqual(get_chart_state().get_state()["instrument_id"], "AAPL")
+        self.assertEqual(len(get_trade_journal().get_all()), journal_count)
+        self.assertFalse(get_replay_session().is_replay_mode())
+        temp.cleanup()
+
+    def test_recommendation_cannot_create_trades(self):
+        from src.research.selection import AdaptiveStrategySelector
+        from src.trading.order_engine import get_order_engine
+        from src.trading.trade_plan import get_trade_plan_manager
+
+        plans_before = len(get_trade_plan_manager()._plans)
+        orders_before = len(get_order_engine().get_all())
+        AdaptiveStrategySelector().recommend(
+            "ESZ26",
+            market_context={
+                "asset_class": "FUTURES",
+                "active_regimes": ["trending"],
+                "trend_state": "trending",
+                "volatility_state": "high",
+                "data_quality": {"warnings": []},
+            },
+            strategy_reports=[],
+            walk_forward_reports=[],
+        )
+        self.assertEqual(len(get_trade_plan_manager()._plans), plans_before)
+        self.assertEqual(len(get_order_engine().get_all()), orders_before)
+
+
 if __name__ == "__main__":
     unittest.main()

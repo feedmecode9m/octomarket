@@ -108,6 +108,18 @@ class TestDateWindows(unittest.TestCase):
         self.assertIsNotNone(result["start"])
         self.assertLess(len(session._data["ES"]), 60)
 
+    def test_overlapping_walk_forward_windows_rejected(self):
+        from src.research.dates import validate_non_overlapping_windows
+
+        with self.assertRaises(ValueError):
+            validate_non_overlapping_windows(
+                [
+                    {"name": "research", "start": "2020-01-01", "end": "2022-12-31"},
+                    {"name": "validation", "start": "2022-06-01", "end": "2023-12-31"},
+                    {"name": "out_of_sample", "start": "2024-01-01", "end": "2025-12-31"},
+                ]
+            )
+
 
 class TestStrategyReportReliability(unittest.TestCase):
     def test_report_schema_v3_fields(self):

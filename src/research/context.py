@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import tempfile
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional
 
 from ..replay.replay_memory import ReplayMemory
+from ..replay.replay_session import ReplaySessionManager
 from ..replay.replay_store import ReplayStore
 from ..simulation.paper_portfolio import PaperPortfolio
 from .costs import TransactionCostModel
@@ -76,6 +78,8 @@ def isolated_research_environment(
     )
 
     import src.api.execution_routes as execution_routes
+    import src.charting.chart_state as chart_state_mod
+    import src.charting.candle_engine as candle_engine_mod
     import src.replay.replay_memory as replay_memory_mod
     import src.replay.replay_session as replay_session_mod
     import src.replay.replay_store as replay_store_mod
@@ -85,15 +89,20 @@ def isolated_research_environment(
     import src.trading.order_engine as order_engine_mod
     import src.trading.trade_plan as trade_plan_mod
 
+    research_replay = ReplaySessionManager(session=session)
+    chart_manager = chart_state_mod.get_chart_state()
+
     originals = {
         "replay_memory": replay_memory_mod._memory_instance,
         "replay_store": replay_store_mod._store_instance,
+        "replay_session": replay_session_mod._manager_instance,
         "trade_plan": trade_plan_mod._manager_instance,
         "orders": order_engine_mod._engine_instance,
         "executor": execution_mod._simulator_instance,
         "portfolio": paper_portfolio_mod._portfolio_instance,
         "session": session_mod._session_instance,
         "process_fills": execution_routes.process_session_fills,
+        "chart_state": deepcopy(chart_manager._state),
     }
 
     def _patched_fills(candles: dict) -> list:
@@ -108,23 +117,28 @@ def isolated_research_environment(
 
     replay_memory_mod._memory_instance = memory
     replay_store_mod._store_instance = store
+    replay_session_mod._manager_instance = research_replay
     trade_plan_mod._manager_instance = plans
     order_engine_mod._engine_instance = orders
     execution_mod._simulator_instance = executor
     paper_portfolio_mod._portfolio_instance = portfolio
     session_mod._session_instance = session
     execution_routes.process_session_fills = _patched_fills
+    candle_engine_mod.get_candle_engine().clear_cache()
 
     try:
         yield env
     finally:
         replay_memory_mod._memory_instance = originals["replay_memory"]
         replay_store_mod._store_instance = originals["replay_store"]
+        replay_session_mod._manager_instance = originals["replay_session"]
         trade_plan_mod._manager_instance = originals["trade_plan"]
         order_engine_mod._engine_instance = originals["orders"]
         execution_mod._simulator_instance = originals["executor"]
         paper_portfolio_mod._portfolio_instance = originals["portfolio"]
         session_mod._session_instance = originals["session"]
         execution_routes.process_session_fills = originals["process_fills"]
+        chart_manager._state = originals["chart_state"]
+        candle_engine_mod.get_candle_engine().clear_cache()
         if temp is not None:
             temp.cleanup()

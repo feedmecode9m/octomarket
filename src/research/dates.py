@@ -49,6 +49,26 @@ def apply_session_date_window(
     return {"start": first[0], "end": first[1]}
 
 
+def validate_non_overlapping_windows(windows: List[Dict[str, str]]) -> None:
+    """Reject overlapping walk-forward windows so later periods cannot leak into earlier ones."""
+    parsed = []
+    for window in windows:
+        start = pd.Timestamp(window["start"])
+        end = pd.Timestamp(window["end"])
+        if end < start:
+            raise ValueError(f"Invalid window '{window.get('name')}': end before start")
+        parsed.append((start, end, window.get("name") or "window"))
+    parsed.sort(key=lambda item: item[0])
+    for idx in range(1, len(parsed)):
+        prev_start, prev_end, prev_name = parsed[idx - 1]
+        start, end, name = parsed[idx]
+        if start <= prev_end:
+            raise ValueError(
+                f"Walk-forward windows overlap: {prev_name} ({prev_start} → {prev_end}) "
+                f"and {name} ({start} → {end})"
+            )
+
+
 def split_date_range(
     index: pd.DatetimeIndex,
     *,
@@ -70,7 +90,9 @@ def split_date_range(
     validation_end = min(validation_end, n - 1)
 
     def _label(ts) -> str:
-        return ts.date().isoformat() if hasattr(ts, "date") else str(ts)[:10]
+        if hasattr(ts, "isoformat"):
+            return ts.isoformat()
+        return str(ts)
 
     return [
         {
@@ -103,10 +125,13 @@ def resolve_walk_forward_windows(
     out_of_sample_ratio: float = 0.25,
 ) -> List[Dict[str, str]]:
     if windows:
+        validate_non_overlapping_windows(windows)
         return windows
-    return split_date_range(
+    resolved = split_date_range(
         ohlcv.index,
         research_ratio=research_ratio,
         validation_ratio=validation_ratio,
         out_of_sample_ratio=out_of_sample_ratio,
     )
+    validate_non_overlapping_windows(resolved)
+    return resolved

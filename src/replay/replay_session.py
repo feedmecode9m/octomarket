@@ -56,7 +56,7 @@ class ReplaySessionManager:
 
     def __init__(self, session: Optional[MarketSession] = None):
         self._lock = threading.RLock()
-        self._session = session or get_market_session()
+        self._session_override = session
         self._instrument_id: Optional[str] = None
         self._symbol: Optional[str] = None
         self._interval = "1d"
@@ -67,6 +67,11 @@ class ReplaySessionManager:
         self._metrics = ReplayMetrics()
         self._started_at: Optional[str] = None
         self._source_record_id: Optional[str] = None
+
+    @property
+    def _session(self) -> MarketSession:
+        """Resolve the active market session — never cache the singleton across research isolation."""
+        return self._session_override if self._session_override is not None else get_market_session()
 
     def start(
         self,

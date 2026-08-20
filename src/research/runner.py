@@ -103,7 +103,7 @@ class StrategyBacktestRunner:
             period=period,
             interval=interval,
             initial_cash=env.portfolio.initial_cash,
-            reset_portfolio=True,
+            reset_portfolio=False,
         )
 
         window_range = apply_session_date_window(
