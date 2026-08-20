@@ -20,11 +20,17 @@ from .replay_store import ReplayStore, get_replay_store
 class ReplayMemory:
     """Connect trade plan and execution lifecycle events to durable replay records."""
 
-    def __init__(self, store: Optional[ReplayStore] = None):
+    def __init__(
+        self,
+        store: Optional[ReplayStore] = None,
+        *,
+        enable_journal: bool = True,
+    ):
         self._store = store or get_replay_store()
         self._lock = threading.RLock()
         self._by_plan: Dict[str, str] = {}
         self._by_entry_order: Dict[str, str] = {}
+        self._enable_journal = enable_journal
         self._index_loaded_records()
 
     def on_plan_created(self, plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -68,6 +74,7 @@ class ReplayMemory:
         updated = apply_scoring(updated)
         saved = self._store.save(updated)
         index_closed_record(saved)
+        self._record_learning_entry(saved)
         self._mark_plan_completed(saved.get("plan_id"))
         return saved
 
@@ -116,10 +123,22 @@ class ReplayMemory:
             updated = apply_scoring(updated)
             saved = self._store.save(updated)
             index_closed_record(saved)
+            self._record_learning_entry(saved)
             self._mark_plan_completed(saved.get("plan_id"))
             return saved
         result = self.on_exit_fill(synthetic_order, fill, exit_reason="manual_close")
         return result
+
+    def _record_learning_entry(self, record: Dict[str, Any]) -> None:
+        if not self._enable_journal:
+            return
+        try:
+            from ..learning.journal_service import record_closed_trade
+
+            record_closed_trade(record)
+        except Exception:
+            # Journal must never break trade close / scoring lifecycle.
+            return
 
     def reset(self) -> None:
         with self._lock:

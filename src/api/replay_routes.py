@@ -152,7 +152,15 @@ def replay_record_by_plan(plan_id):
     if not record:
         return jsonify({"error": "Replay record not found"}), 404
     similar = _patterns.find_similar(record, limit=5) if record.get("status") == "closed" else None
-    return jsonify({"record": record, "similar_trades": similar})
+    journal_entry = None
+    if record.get("status") == "closed":
+        try:
+            from ..learning.journal_service import get_learning_journal_service
+
+            journal_entry = get_learning_journal_service().get_by_record_id(record["id"])
+        except Exception:
+            journal_entry = None
+    return jsonify({"record": record, "similar_trades": similar, "journal_entry": journal_entry})
 
 
 @replay_bp.route("/patterns/similar/<plan_id>", methods=["GET"])

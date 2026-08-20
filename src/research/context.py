@@ -51,7 +51,7 @@ def isolated_research_environment(
         store_path = Path(temp.name) / "records.jsonl"
 
     store = ReplayStore(path=store_path)
-    memory = ReplayMemory(store=store)
+    memory = ReplayMemory(store=store, enable_journal=False)
     plans = TradePlanManager(record_replay=True, replay_memory=memory)
     orders = OrderEngine()
     model = cost_model or TransactionCostModel()

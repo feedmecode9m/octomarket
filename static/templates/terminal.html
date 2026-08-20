@@ -544,7 +544,31 @@
                 · R: ${outcome.r_multiple ?? '—'} · ${outcome.win_loss || '—'}</div>
                 ${scoring.decision_quality_note ? `<div class="text-muted mt-1">${scoring.decision_quality_note}</div>` : ''}
                 ${similarBlock}
+                <div id="learningJournalBlock" class="mt-2"></div>
                 <div class="text-muted mt-1">Snapshot @ ${(rec.decision_context || {}).captured_at || '—'}</div>`;
+            if (rec.status === 'closed') {
+                loadLearningJournal(planId);
+            }
+        }
+
+        async function loadLearningJournal(planId) {
+            const block = document.getElementById('learningJournalBlock');
+            if (!block || !planId) return;
+            const data = await api(`/api/learning/journal/plan/${encodeURIComponent(planId)}`);
+            if (data.error || !data.entry) {
+                block.innerHTML = '';
+                return;
+            }
+            const e = data.entry;
+            const repeat = (e.repeat || []).map((x) => `<li>${x}</li>`).join('');
+            const avoid = (e.avoid || []).map((x) => `<li>${x}</li>`).join('');
+            const sim = e.similar_pattern || {};
+            block.innerHTML = `
+                <strong>Learning Journal</strong> · confidence ${e.confidence || '—'}
+                <div class="mt-1">${e.lesson || ''}</div>
+                ${sim.match_count ? `<div class="text-muted mt-1">Similar: ${sim.match_count} · WR ${sim.win_rate != null ? (sim.win_rate * 100).toFixed(0) + '%' : '—'} · avg R ${sim.average_r_multiple ?? '—'}</div>` : ''}
+                ${repeat ? `<div class="mt-1"><strong>Repeat</strong><ul class="mb-0 ps-3">${repeat}</ul></div>` : ''}
+                ${avoid ? `<div class="mt-1"><strong>Avoid</strong><ul class="mb-0 ps-3">${avoid}</ul></div>` : ''}`;
         }
 
         function updateSessionDisplay(session) {
