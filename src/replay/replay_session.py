@@ -67,11 +67,40 @@ class ReplaySessionManager:
         self._metrics = ReplayMetrics()
         self._started_at: Optional[str] = None
         self._source_record_id: Optional[str] = None
+        self._live_paper_backup: Optional[Dict[str, Any]] = None
 
     @property
     def _session(self) -> MarketSession:
         """Resolve the active market session — never cache the singleton across research isolation."""
         return self._session_override if self._session_override is not None else get_market_session()
+
+    def _capture_live_paper_backup(self) -> None:
+        """Preserve LIVE PAPER portfolio/orders/journal before entering REPLAY."""
+        if self._live_paper_backup is not None:
+            return
+        from ..ai_agent.trade_journal import get_trade_journal
+        from ..simulation.paper_portfolio import get_paper_portfolio
+        from ..trading.order_engine import get_order_engine
+
+        self._live_paper_backup = {
+            "portfolio": get_paper_portfolio().export_state(),
+            "orders": get_order_engine().export_state(),
+            "journal": get_trade_journal().export_state(),
+        }
+
+    def _restore_live_paper_backup(self) -> None:
+        """Restore preserved LIVE PAPER state after REPLAY ends."""
+        backup = self._live_paper_backup
+        self._live_paper_backup = None
+        if backup is None:
+            return
+        from ..ai_agent.trade_journal import get_trade_journal
+        from ..simulation.paper_portfolio import get_paper_portfolio
+        from ..trading.order_engine import get_order_engine
+
+        get_paper_portfolio().import_state(backup["portfolio"])
+        get_order_engine().import_state(backup["orders"])
+        get_trade_journal().import_state(backup["journal"])
 
     def start(
         self,
@@ -91,10 +120,13 @@ class ReplaySessionManager:
         session_key = instrument.symbol.upper()
 
         with self._lock:
+            # Preserve LIVE PAPER state before REPLAY mutates shared singletons.
+            self._capture_live_paper_backup()
+
             if reset_portfolio:
+                from ..ai_agent.trade_journal import get_trade_journal
                 from ..simulation.paper_portfolio import get_paper_portfolio
                 from ..trading.order_engine import get_order_engine
-                from ..ai_agent.trade_journal import get_trade_journal
 
                 get_paper_portfolio().reset(initial_cash)
                 get_order_engine().clear()
@@ -187,22 +219,22 @@ class ReplaySessionManager:
 
     def reset(self) -> Dict[str, Any]:
         with self._lock:
-            symbol = self._symbol or "AAPL"
-            self._session.close()
+            # Restore LIVE PAPER first so REPLAY never leaves a wiped portfolio behind.
+            self._restore_live_paper_backup()
+            # Drop replay clock/prices entirely — residual closes must not price LIVE fills.
+            if hasattr(self._session, "release"):
+                self._session.release()
+            else:
+                self._session.close()
             self._metrics = ReplayMetrics()
-            self._metrics.bind_symbol(symbol)
             self._status = "idle"
             self._mode = MODE_LIVE_PAPER
             self._instrument_id = None
             self._symbol = None
             self._source_record_id = None
+            self._started_at = None
             get_candle_engine().clear_cache()
-            return {
-                "message": "Replay reset",
-                "status": "idle",
-                "mode": MODE_LIVE_PAPER,
-                "symbol": symbol,
-            }
+            return self.get_state()
 
     def set_speed(self, speed: str) -> Dict[str, Any]:
         with self._lock:

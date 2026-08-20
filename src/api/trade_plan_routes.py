@@ -15,17 +15,10 @@ _executor = get_execution_simulator()
 _portfolio = get_paper_portfolio()
 
 
-def _current_prices() -> dict:
-    from ..simulation.session import get_market_session
+def _current_prices(for_symbol=None) -> dict:
+    from ..market.live_price import resolve_execution_prices
 
-    state = get_market_session().get_state()
-    prices = dict(state.get("prices", {}))
-    if not prices:
-        from ..market.watchlist import get_watchlist
-        for entry in get_watchlist().get_all():
-            if entry.get("price", 0) > 0:
-                prices[entry["symbol"]] = entry["price"]
-    return prices
+    return resolve_execution_prices(for_symbol=for_symbol)
 
 
 @trade_plan_bp.route("", methods=["POST"])

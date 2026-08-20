@@ -162,6 +162,14 @@ class TradeJournal:
         with self._lock:
             self._entries.clear()
 
+    def export_state(self) -> Dict[str, Any]:
+        with self._lock:
+            return {"entries": [dict(entry) for entry in self._entries]}
+
+    def import_state(self, state: Dict[str, Any]) -> None:
+        with self._lock:
+            self._entries = [dict(entry) for entry in (state.get("entries") or [])]
+
     def sync_from_trades(self, trades: List[Dict[str, Any]], strategy_name: str = "MA Crossover + RSI") -> int:
         """Sync journal from simulator trade list. Returns number of new entries."""
         added = 0

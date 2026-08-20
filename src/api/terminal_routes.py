@@ -86,13 +86,26 @@ def remove_from_watchlist(symbol):
 def _merge_terminal_state(replay_state: dict) -> dict:
     """Merge canonical replay state with underlying session fields for terminal clients."""
     session_state = _session.get_state()
-    prices = session_state.get("prices") or replay_state.get("prices") or {}
+    from ..market.live_price import resolve_execution_prices
+    from ..replay.replay_session import is_replay_mode
+
+    if is_replay_mode():
+        prices = session_state.get("prices") or replay_state.get("prices") or {}
+    else:
+        # LIVE PAPER valuation must ignore residual replay session closes.
+        prices = resolve_execution_prices()
     merged = {**session_state, **replay_state}
     merged["state"] = session_state.get("state", "idle")
     merged["replay_mode"] = replay_state.get("mode") == "replay"
     merged["portfolio"] = _portfolio.to_dict(prices)
-    candle = replay_state.get("current_candle") or {}
-    current = replay_state.get("current_index", session_state.get("current_index", -1))
+    if not is_replay_mode():
+        # Informational only — never authoritative for LIVE execution.
+        merged["session_capped"] = False
+        candle = {}
+        current = -1
+    else:
+        candle = replay_state.get("current_candle") or {}
+        current = replay_state.get("current_index", session_state.get("current_index", -1))
     merged["current_timestamp"] = candle.get("timestamp")
     merged["visible_candle_count"] = max(0, int(current) + 1) if current is not None and int(current) >= 0 else 0
     return merged
@@ -143,9 +156,9 @@ def step_session():
         fill_results = state.get("fills") or []
         state["fills"] = fill_results
 
+    # Do NOT write replay closes into the LIVE watchlist — that contaminates LIVE PAPER pricing.
     for symbol, price in session_state.get("prices", {}).items():
         prev = session_state.get("prev_closes", {}).get(symbol, price)
-        _watchlist.update_price(symbol, price, prev)
         triggered.extend(_alerts.check_price_alerts(symbol, price, prev))
 
         chart = _session.get_chart_data(symbol)

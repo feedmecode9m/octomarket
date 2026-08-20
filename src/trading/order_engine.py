@@ -223,6 +223,16 @@ class OrderEngine:
         with self._lock:
             self._orders.clear()
 
+    def export_state(self) -> Dict[str, Any]:
+        with self._lock:
+            return {"orders": {oid: dict(order) for oid, order in self._orders.items()}}
+
+    def import_state(self, state: Dict[str, Any]) -> None:
+        with self._lock:
+            self._orders = {
+                oid: dict(order) for oid, order in (state.get("orders") or {}).items()
+            }
+
     def _validate_order(self, order: Dict[str, Any]):
         ot = order["order_type"]
         if ot == "limit" and not order.get("limit_price"):

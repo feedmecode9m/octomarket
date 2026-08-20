@@ -110,6 +110,19 @@ class MarketSession:
         with self._lock:
             self._state = "closed"
 
+    def release(self) -> None:
+        """Clear replay clock/price context so it cannot influence LIVE PAPER execution."""
+        with self._lock:
+            self._state = "idle"
+            self._symbols = []
+            self._data = {}
+            self._instruments = {}
+            self._index = -1
+            self._max_length = 0
+            self._prices = {}
+            self._prev_closes = {}
+            self._started_at = None
+
     def _resolve_session_key(self, raw: str) -> Optional[str]:
         text = (raw or "").upper()
         if text in self._data:

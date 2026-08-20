@@ -63,6 +63,80 @@ class PaperPortfolio:
             self.total_commissions = 0.0
             self.total_slippage = 0.0
 
+    def export_state(self) -> Dict[str, Any]:
+        """Snapshot portfolio for LIVE PAPER ↔ REPLAY isolation."""
+        with self._lock:
+            return {
+                "initial_cash": self.initial_cash,
+                "cash": self.cash,
+                "realized_pnl": self.realized_pnl,
+                "total_commissions": self.total_commissions,
+                "total_slippage": self.total_slippage,
+                "positions": {
+                    sym: {
+                        "symbol": pos.symbol,
+                        "quantity": pos.quantity,
+                        "avg_cost": pos.avg_cost,
+                        "opened_at": pos.opened_at,
+                    }
+                    for sym, pos in self.positions.items()
+                },
+                "trade_history": [
+                    {
+                        "id": t.id,
+                        "timestamp": t.timestamp,
+                        "symbol": t.symbol,
+                        "action": t.action,
+                        "quantity": t.quantity,
+                        "requested_price": t.requested_price,
+                        "fill_price": t.fill_price,
+                        "commission": t.commission,
+                        "slippage_cost": t.slippage_cost,
+                        "total_cost": t.total_cost,
+                        "cash_after": t.cash_after,
+                        "reason": t.reason,
+                    }
+                    for t in self.trade_history
+                ],
+                "position_history": [dict(row) for row in self.position_history],
+            }
+
+    def import_state(self, state: Dict[str, Any]) -> None:
+        """Restore a previously exported LIVE PAPER portfolio snapshot."""
+        with self._lock:
+            self.initial_cash = float(state.get("initial_cash", self.initial_cash))
+            self.cash = float(state.get("cash", self.initial_cash))
+            self.realized_pnl = float(state.get("realized_pnl", 0.0))
+            self.total_commissions = float(state.get("total_commissions", 0.0))
+            self.total_slippage = float(state.get("total_slippage", 0.0))
+            self.positions = {
+                sym: Position(
+                    symbol=payload["symbol"],
+                    quantity=int(payload["quantity"]),
+                    avg_cost=float(payload["avg_cost"]),
+                    opened_at=payload.get("opened_at") or datetime.now().isoformat(),
+                )
+                for sym, payload in (state.get("positions") or {}).items()
+            }
+            self.trade_history = [
+                TradeRecord(
+                    id=row["id"],
+                    timestamp=row["timestamp"],
+                    symbol=row["symbol"],
+                    action=row["action"],
+                    quantity=int(row["quantity"]),
+                    requested_price=float(row["requested_price"]),
+                    fill_price=float(row["fill_price"]),
+                    commission=float(row["commission"]),
+                    slippage_cost=float(row["slippage_cost"]),
+                    total_cost=float(row["total_cost"]),
+                    cash_after=float(row["cash_after"]),
+                    reason=row.get("reason") or "",
+                )
+                for row in (state.get("trade_history") or [])
+            ]
+            self.position_history = [dict(row) for row in (state.get("position_history") or [])]
+
     def buy(
         self,
         symbol: str,

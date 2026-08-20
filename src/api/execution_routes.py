@@ -23,15 +23,11 @@ _coach = get_execution_coach()
 _peak_equity = 10000.0
 
 
-def _current_prices() -> dict:
-    state = _session.get_state()
-    prices = dict(state.get("prices", {}))
-    if not prices:
-        from ..market.watchlist import get_watchlist
-        for entry in get_watchlist().get_all():
-            if entry.get("price", 0) > 0:
-                prices[entry["symbol"]] = entry["price"]
-    return prices
+def _current_prices(for_symbol: Optional[str] = None) -> dict:
+    """Mode-aware prices: REPLAY uses session closes; LIVE never does."""
+    from ..market.live_price import resolve_execution_prices
+
+    return resolve_execution_prices(for_symbol=for_symbol)
 
 
 def _record_fill_in_journal(order: dict, fill: dict):
@@ -99,14 +95,35 @@ def place_order():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    prices = _current_prices()
-    price = prices.get(symbol, data.get("limit_price") or data.get("price") or 0)
+    prices = _current_prices(for_symbol=symbol)
+    price = float(prices.get(symbol) or 0)
 
-    if order_type == "market" and price > 0:
+    if order_type == "market":
+        from ..replay.replay_session import is_replay_mode
+
+        if price <= 0:
+            # Never fall back to residual replay closes for LIVE fills.
+            _orders.mark_rejected(
+                order["id"],
+                "No valid LIVE price available for market execution",
+            )
+            order = _orders.get_order(order["id"])
+            msg = (
+                "No valid replay session price available for market execution"
+                if is_replay_mode()
+                else (
+                    "No valid LIVE price available for market execution. "
+                    "Add the symbol to the watchlist or ensure a live quote can be fetched."
+                )
+            )
+            return jsonify({"error": msg, "order": order}), 400
+
         fill_result = _executor.process_market_order(order, price)
         order = _orders.get_order(order["id"])
         if fill_result.get("status") == "FILLED":
             _record_fill_in_journal(order, fill_result.get("fill", {}))
+        elif fill_result.get("status") == "REJECTED":
+            return jsonify({"error": fill_result.get("error", "Order rejected"), "order": order}), 400
 
     return jsonify({"message": "Order placed", "order": order})
 
@@ -149,10 +166,17 @@ def close_position():
     if not symbol:
         return jsonify({"error": "Symbol required"}), 400
 
-    prices = _current_prices()
-    price = prices.get(symbol, 0)
+    prices = _current_prices(for_symbol=symbol)
+    price = float(prices.get(symbol) or 0)
     if price <= 0:
-        return jsonify({"error": "No price available"}), 400
+        from ..replay.replay_session import is_replay_mode
+
+        msg = (
+            "No valid replay session price available"
+            if is_replay_mode()
+            else "No valid LIVE price available"
+        )
+        return jsonify({"error": msg}), 400
 
     pos = _portfolio.to_dict(prices).get("positions", {}).get(symbol)
     if not pos:
