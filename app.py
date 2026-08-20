@@ -11,6 +11,7 @@ from src.api.trade_plan_routes import trade_plan_bp
 from src.api.instrument_routes import instrument_bp
 from src.api.replay_routes import replay_bp
 from src.api.strategy_routes import strategy_bp
+from src.api.research_routes import research_bp
 from src.config.product import get_product, get_product_context
 from src.utils.config import get_config
 import logging
@@ -47,6 +48,7 @@ def create_app():
         app.register_blueprint(instrument_bp)
         app.register_blueprint(replay_bp)
         app.register_blueprint(strategy_bp)
+        app.register_blueprint(research_bp)
     except Exception as e:
         logging.error(f"Failed to create Flask app: {e}")
         raise

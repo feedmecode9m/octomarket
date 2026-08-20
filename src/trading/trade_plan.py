@@ -240,10 +240,11 @@ def _normalize_level(level: Any, default_source: Optional[Dict[str, Any]] = None
 class TradePlanManager:
     """In-memory trade plan store and lifecycle."""
 
-    def __init__(self, record_replay: bool = False):
+    def __init__(self, record_replay: bool = False, replay_memory: Optional["ReplayMemory"] = None):
         self._lock = threading.RLock()
         self._plans: Dict[str, Dict[str, Any]] = {}
         self._record_replay = record_replay
+        self._replay_memory = replay_memory
 
     def create_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
         raw = data.get("symbol") or data.get("instrument_id") or ""
@@ -467,16 +468,22 @@ class TradePlanManager:
         return plan.get("thesis") or "Trade plan"
 
     def _record_plan_created(self, plan: Dict[str, Any]) -> None:
-        from ..replay.replay_memory import get_replay_memory
-
-        get_replay_memory().on_plan_created(plan)
+        memory = self._replay_memory
+        if memory is None:
+            from ..replay.replay_memory import get_replay_memory
+            memory = get_replay_memory()
+        memory.on_plan_created(plan)
 
     def _record_order_submitted(self, plan_id: str, order_id: str) -> None:
-        from ..replay.replay_memory import get_replay_memory
+        memory = self._replay_memory
+        if memory is None:
+            from ..replay.replay_memory import get_replay_memory
+            memory = get_replay_memory()
         from .order_engine import get_order_engine
 
-        order = get_order_engine().get_order(order_id) or {"id": order_id}
-        get_replay_memory().on_order_submitted(plan_id, order_id, order)
+        order_engine = get_order_engine()
+        order = order_engine.get_order(order_id) or {"id": order_id}
+        memory.on_order_submitted(plan_id, order_id, order)
 
 
 _manager_instance: Optional[TradePlanManager] = None

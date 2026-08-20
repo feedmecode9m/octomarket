@@ -233,6 +233,12 @@
                     <div id="coachReviewBox" class="coach-review-box" style="display:none"></div>
                     <div id="planResult" class="small mt-1 text-muted"></div>
                     <div id="replayReviewPanel" class="replay-review-panel"></div>
+                    <div class="mt-2 pt-2 border-top border-secondary">
+                        <div class="small text-muted mb-1"><strong>Research</strong></div>
+                        <select class="form-select form-select-sm mb-1" id="researchStrategySelect"></select>
+                        <button class="btn btn-plan btn-sm" id="runResearchBtn">RUN EVALUATION</button>
+                        <div id="researchReportPanel" class="coach-review-box mt-1" style="display:none; max-height:160px;"></div>
+                    </div>
                 </div>
             </div>
             <div class="order-ticket-section">
@@ -677,12 +683,60 @@
         function populateStrategySelect() {
             const sel = document.getElementById('strategySelect');
             const btn = document.getElementById('generateStrategyPlanBtn');
+            const researchSel = document.getElementById('researchStrategySelect');
             const items = strategyCatalog[selectedAssetClass] || [];
             sel.innerHTML = '<option value="">Manual</option>' +
                 items.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
             sel.value = selectedStrategyId && items.find((s) => s.id === selectedStrategyId) ? selectedStrategyId : '';
             selectedStrategyId = sel.value;
             btn.style.display = selectedStrategyId ? 'inline-block' : 'none';
+            if (researchSel) {
+                researchSel.innerHTML = items.length
+                    ? items.map((s) => `<option value="${s.id}">${s.name}</option>`).join('')
+                    : '<option value="">No strategies for this asset class</option>';
+            }
+        }
+
+        function renderResearchReport(report) {
+            const panel = document.getElementById('researchReportPanel');
+            if (!report) { panel.style.display = 'none'; return; }
+            panel.style.display = 'block';
+            const best = (report.best_conditions || []).map((x) => `<li>${x}</li>`).join('');
+            const weak = (report.weak_conditions || []).map((x) => `<li>${x}</li>`).join('');
+            panel.innerHTML = `
+                <strong>${report.strategy_name}</strong> · ${report.instrument_id} · ${report.period}
+                <div class="mt-1">Trades: ${report.trade_count} · Win rate: ${report.win_rate != null ? (report.win_rate * 100).toFixed(0) + '%' : '—'}
+                · PF: ${report.profit_factor ?? '—'} · Max DD: ${report.max_drawdown_pct != null ? report.max_drawdown_pct + '%' : '—'}</div>
+                <div>Avg decision: ${report.average_decision_score ?? '—'} · Avg outcome: ${report.average_outcome_score ?? '—'}</div>
+                ${best ? `<div class="mt-1"><strong>Best conditions</strong><ul class="mb-0 ps-3">${best}</ul></div>` : ''}
+                ${weak ? `<div class="mt-1"><strong>Weak conditions</strong><ul class="mb-0 ps-3">${weak}</ul></div>` : ''}`;
+        }
+
+        async function runStrategyResearch() {
+            const strategyId = document.getElementById('researchStrategySelect')?.value;
+            const panel = document.getElementById('researchReportPanel');
+            if (!strategyId) {
+                panel.style.display = 'block';
+                panel.textContent = 'Select a strategy for this asset class.';
+                return;
+            }
+            panel.style.display = 'block';
+            panel.textContent = 'Running evaluation…';
+            const resp = await api('/api/research/run', {
+                method: 'POST',
+                body: JSON.stringify({
+                    strategy_id: strategyId,
+                    instrument_id: selectedInstrumentId,
+                    period: selectedPeriod,
+                    interval: selectedTimeframe,
+                    max_trades: 20,
+                }),
+            });
+            if (resp.error) {
+                panel.textContent = resp.error;
+                return;
+            }
+            renderResearchReport(resp.report);
         }
 
         async function generateStrategyPlan() {
@@ -1111,6 +1165,7 @@
 
         document.getElementById('reviewPlanBtn').onclick = reviewTradePlan;
         document.getElementById('generateStrategyPlanBtn').onclick = generateStrategyPlan;
+        document.getElementById('runResearchBtn').onclick = runStrategyResearch;
         document.getElementById('strategySelect').addEventListener('change', (e) => {
             selectedStrategyId = e.target.value;
             document.getElementById('generateStrategyPlanBtn').style.display = selectedStrategyId ? 'inline-block' : 'none';
