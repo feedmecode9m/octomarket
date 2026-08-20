@@ -195,6 +195,13 @@
                         <span class="small text-muted" id="planAssetClass">STOCK</span>
                     </div>
                     <div class="mb-1">
+                        <label class="small text-muted">Strategy</label>
+                        <select class="form-select form-select-sm" id="strategySelect">
+                            <option value="">Manual</option>
+                        </select>
+                        <button class="btn btn-plan btn-sm mt-1" id="generateStrategyPlanBtn" style="display:none">GENERATE STRATEGY PLAN</button>
+                    </div>
+                    <div class="mb-1">
                         <label class="small text-muted">Direction</label>
                         <div>
                             <label class="me-2 small"><input type="radio" name="planDirection" value="LONG" checked> LONG</label>
@@ -311,6 +318,8 @@
         let pendingCancelId = null;
         let currentPlanId = null;
         let planEntrySource = null;
+        let strategyCatalog = {};
+        let selectedStrategyId = '';
 
         async function api(url, opts = {}) {
             const resp = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -558,6 +567,7 @@
             document.getElementById('orderSymbol').value = selectedInstrumentId;
             document.getElementById('planSymbol').value = selectedDisplaySymbol;
             updateAssetClassLabels(selectedAssetClass);
+            populateStrategySelect();
             updateSessionDisplay(info.session);
             if (syncChartState) {
                 await api('/api/chart/state', {
@@ -656,6 +666,48 @@
             document.getElementById('orderTP').value = plan.target?.price ?? '';
             refreshChartPriceLines();
             reviewOrder();
+        }
+
+        async function loadStrategyCatalog() {
+            const data = await api('/api/strategies');
+            strategyCatalog = data.catalog || {};
+            populateStrategySelect();
+        }
+
+        function populateStrategySelect() {
+            const sel = document.getElementById('strategySelect');
+            const btn = document.getElementById('generateStrategyPlanBtn');
+            const items = strategyCatalog[selectedAssetClass] || [];
+            sel.innerHTML = '<option value="">Manual</option>' +
+                items.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+            sel.value = selectedStrategyId && items.find((s) => s.id === selectedStrategyId) ? selectedStrategyId : '';
+            selectedStrategyId = sel.value;
+            btn.style.display = selectedStrategyId ? 'inline-block' : 'none';
+        }
+
+        async function generateStrategyPlan() {
+            const el = document.getElementById('planResult');
+            if (!selectedStrategyId) return;
+            try {
+                const resp = await api(`/api/strategies/${selectedStrategyId}/generate-plan`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        instrument_id: selectedInstrumentId,
+                        account_balance: accountBalance,
+                        risk_percent: 1.0,
+                    }),
+                });
+                if (resp.error) throw new Error(resp.error);
+                if (!resp.plan) {
+                    el.textContent = resp.reason || 'No strategy setup at current bar';
+                    return;
+                }
+                applyPlanToForm(resp.plan);
+                syncPlanToOrderTicket(resp.plan);
+                el.textContent = `${resp.plan.strategy_name || selectedStrategyId} plan generated`;
+            } catch (e) {
+                el.textContent = e.message;
+            }
         }
 
         async function loadTradePlan() {
@@ -1038,6 +1090,7 @@
         document.getElementById('assetClassSelect').addEventListener('change', async (e) => {
             selectedAssetClass = e.target.value;
             populateInstrumentSelect(selectedAssetClass);
+            populateStrategySelect();
             const id = document.getElementById('instrumentSelect').value;
             if (id) await switchInstrument(id);
         });
@@ -1057,6 +1110,11 @@
         document.getElementById('indicatorToggles').addEventListener('change', refreshIndicators);
 
         document.getElementById('reviewPlanBtn').onclick = reviewTradePlan;
+        document.getElementById('generateStrategyPlanBtn').onclick = generateStrategyPlan;
+        document.getElementById('strategySelect').addEventListener('change', (e) => {
+            selectedStrategyId = e.target.value;
+            document.getElementById('generateStrategyPlanBtn').style.display = selectedStrategyId ? 'inline-block' : 'none';
+        });
         document.getElementById('aiReviewPlanBtn').onclick = aiReviewTradePlan;
         document.getElementById('createOrderFromPlanBtn').onclick = createOrderFromPlan;
         ['planEntry','planStop','planTarget','planQty'].forEach(id => {
@@ -1094,6 +1152,7 @@
 
         (async () => {
             await initTerminalChart();
+            await loadStrategyCatalog();
             await loadWatchlist();
             refreshBottomPanel();
             loadCommentary();

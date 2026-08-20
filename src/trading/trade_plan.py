@@ -282,6 +282,12 @@ class TradePlanManager:
             plan["position_lots"] = float(data["position_lots"])
         if data.get("contracts") is not None:
             plan["contracts"] = int(data["contracts"])
+        if data.get("strategy_id"):
+            plan["strategy_id"] = data["strategy_id"]
+        if data.get("strategy_name"):
+            plan["strategy_name"] = data["strategy_name"]
+        if data.get("strategy_confidence") is not None:
+            plan["strategy_confidence"] = float(data["strategy_confidence"])
 
         normalize_plan_metrics(
             plan,
@@ -440,10 +446,13 @@ class TradePlanManager:
     def _normalize_setup(self, setup: Dict[str, Any]) -> Dict[str, Any]:
         indicators = setup.get("indicators") or []
         drawings = setup.get("drawings") or []
-        return {
+        result = {
             "indicators": indicators if isinstance(indicators, list) else [],
             "drawings": drawings if isinstance(drawings, list) else [],
         }
+        if setup.get("strategy"):
+            result["strategy"] = setup["strategy"]
+        return result
 
     def _setup_summary(self, plan: Dict[str, Any]) -> str:
         parts = []
