@@ -490,11 +490,19 @@
             const outcome = rec.outcome || {};
             const scoring = rec.scoring || {};
             const cats = scoring.categories || {};
+            const similar = data.similar_trades || {};
+            const simSummary = similar.summary || {};
             const fmtCat = (key, label) => {
                 const c = cats[key];
                 if (!c || c.score == null) return `${label}: —`;
                 return `${label}: ${c.score}`;
             };
+            const similarBlock = rec.status === 'closed' ? `
+                <div class="mt-2"><strong>Similar Past Trades</strong>
+                · ${similar.match_count ?? 0} found
+                ${simSummary.trade_count ? `<div class="text-muted">Avg result: ${simSummary.average_r_multiple != null ? simSummary.average_r_multiple + 'R' : '—'}
+                · Avg decision score: ${simSummary.average_decision_score ?? '—'}</div>` : '<div class="text-muted">No similar historical decisions yet.</div>'}
+                </div>` : '';
             panel.style.display = 'block';
             panel.innerHTML = `
                 <strong>Decision Review</strong> · ${rec.mode || '—'} · ${rec.status.toUpperCase()}
@@ -504,6 +512,7 @@
                 <div class="mt-1">P/L: <strong>${outcome.pnl != null ? '$' + outcome.pnl.toFixed(2) : '—'}</strong>
                 · R: ${outcome.r_multiple ?? '—'} · ${outcome.win_loss || '—'}</div>
                 ${scoring.decision_quality_note ? `<div class="text-muted mt-1">${scoring.decision_quality_note}</div>` : ''}
+                ${similarBlock}
                 <div class="text-muted mt-1">Snapshot @ ${(rec.decision_context || {}).captured_at || '—'}</div>`;
         }
 

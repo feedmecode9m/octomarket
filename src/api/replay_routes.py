@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from ..replay.comparison import compare_plan_to_outcome
+from ..replay.pattern_service import get_pattern_service
 from ..replay.replay_memory import get_replay_memory
 from ..replay.scoring_service import score_replay_record
 from ..replay.replay_session import get_replay_session
@@ -13,6 +14,7 @@ replay_bp = Blueprint("replay", __name__, url_prefix="/api/replay")
 _replay = get_replay_session()
 _plans = get_trade_plan_manager()
 _memory = get_replay_memory()
+_patterns = get_pattern_service()
 
 
 @replay_bp.route("/start", methods=["POST"])
@@ -149,7 +151,27 @@ def replay_record_by_plan(plan_id):
     record = _memory.get_by_plan_id(plan_id)
     if not record:
         return jsonify({"error": "Replay record not found"}), 404
-    return jsonify({"record": record})
+    similar = _patterns.find_similar(record, limit=5) if record.get("status") == "closed" else None
+    return jsonify({"record": record, "similar_trades": similar})
+
+
+@replay_bp.route("/patterns/similar/<plan_id>", methods=["GET"])
+def patterns_similar(plan_id):
+    """Find similar historical decisions for a completed trade plan."""
+    limit = request.args.get("limit", 5, type=int)
+    record = _memory.get_by_plan_id(plan_id)
+    if not record:
+        return jsonify({"error": "Replay record not found"}), 404
+    if record.get("status") != "closed":
+        return jsonify({"error": "Trade must be closed before pattern lookup"}), 400
+    return jsonify(_patterns.find_similar(record, limit=max(1, min(limit, 20))))
+
+
+@replay_bp.route("/patterns/query", methods=["POST"])
+def patterns_query():
+    """Query indexed patterns by instrument, session, quality, or outcome filters."""
+    data = request.get_json(silent=True) or {}
+    return jsonify(_patterns.query(data))
 
 
 @replay_bp.route("/score", methods=["POST"])

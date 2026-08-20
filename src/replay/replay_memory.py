@@ -12,6 +12,7 @@ from .replay_record import (
     apply_order_submitted,
     build_replay_record_from_plan,
 )
+from .pattern_service import index_closed_record
 from .scoring_service import apply_scoring, score_replay_record
 from .replay_store import ReplayStore, get_replay_store
 
@@ -66,6 +67,7 @@ class ReplayMemory:
         updated = apply_exit_fill(record, order, fill, exit_reason=exit_reason)
         updated = apply_scoring(updated)
         saved = self._store.save(updated)
+        index_closed_record(saved)
         self._mark_plan_completed(saved.get("plan_id"))
         return saved
 
@@ -113,6 +115,7 @@ class ReplayMemory:
             updated = apply_exit_fill(record, synthetic_order, fill, exit_reason="manual_close")
             updated = apply_scoring(updated)
             saved = self._store.save(updated)
+            index_closed_record(saved)
             self._mark_plan_completed(saved.get("plan_id"))
             return saved
         result = self.on_exit_fill(synthetic_order, fill, exit_reason="manual_close")
