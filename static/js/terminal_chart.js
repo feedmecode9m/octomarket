@@ -221,16 +221,20 @@
         }
 
         _applyMainScaleMargins() {
+            // Lightweight Charts requires scaleMargins.top + bottom < 1.
+            // Volume sits in a lower band (high top, near-zero bottom). Candle
+            // bottom reserves that band — do not reuse candle bottom on volume.
             const hasRsi = this.activeIndicators.has('RSI');
             const hasMacd = this.activeIndicators.has('MACD');
-            let bottom = 0.28;
-            if (hasRsi) bottom += 0.12;
-            if (hasMacd) bottom += 0.12;
+            let candleBottom = 0.28;
+            if (hasRsi) candleBottom += 0.12;
+            if (hasMacd) candleBottom += 0.12;
+            candleBottom = Math.min(candleBottom, 0.55);
             this.chart.priceScale('volume').applyOptions({
-                scaleMargins: { top: 0.82, bottom: Math.min(bottom, 0.55) },
+                scaleMargins: { top: 0.82, bottom: 0 },
             });
             this.candleSeries.priceScale().applyOptions({
-                scaleMargins: { top: 0.05, bottom: Math.min(bottom + 0.05, 0.6) },
+                scaleMargins: { top: 0.05, bottom: Math.min(candleBottom + 0.05, 0.6) },
             });
         }
 

@@ -85,6 +85,33 @@ class TestOnboardingTourPhase2(unittest.TestCase):
             resp = self.client.get(path)
             self.assertIn(resp.status_code, (404, 405, 500))
 
+    def test_onboarding_init_decoupled_from_chart_boot(self):
+        """Pre-UX-P2 gate: tour must init even if chart throws."""
+        html = self.client.get("/terminal").get_data(as_text=True)
+        self.assertIn("function initGuidedOnboarding", html)
+        self.assertIn("initGuidedOnboarding()", html)
+        self.assertIn("Chart init failed; Terminal continues without chart.", html)
+        # Chart await is isolated; onboarding runs from finally
+        self.assertRegex(
+            html,
+            r"try\s*\{\s*await initTerminalChart\(\);\s*\}\s*catch",
+        )
+        self.assertRegex(
+            html,
+            r"finally\s*\{\s*initGuidedOnboarding\(\);\s*\}",
+        )
+
+    def test_volume_scale_margins_sum_less_than_one(self):
+        """Lightweight Charts rejects scaleMargins when top+bottom >= 1."""
+        chart_js = (ROOT / "static" / "js" / "terminal_chart.js").read_text(encoding="utf-8")
+        self.assertIn("_applyMainScaleMargins", chart_js)
+        self.assertIn("scaleMargins: { top: 0.82, bottom: 0 }", chart_js)
+        self.assertNotRegex(
+            chart_js,
+            r"priceScale\('volume'\)\.applyOptions\(\{[\s\S]*?"
+            r"bottom:\s*Math\.min\(bottom",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
