@@ -118,13 +118,14 @@ def _merge_terminal_state(replay_state: dict) -> dict:
 @terminal_bp.route("/session/start", methods=["POST"])
 def start_session():
     data = request.get_json(silent=True) or {}
-    instrument_id = data.get("instrument_id")
+    instrument_id = data.get("instrument_id") or data.get("symbol")
     symbols = data.get("symbols")
     if not instrument_id and symbols:
         instrument_id = symbols[0]
     if not instrument_id:
-        symbols = _watchlist.get_symbols()
-        instrument_id = symbols[0] if symbols else "AAPL"
+        return jsonify({
+            "error": "instrument_id is required to start Replay",
+        }), 400
 
     initial_cash = float(data.get("initial_cash", 10000))
     period = data.get("period", "1mo")
