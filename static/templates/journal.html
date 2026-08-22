@@ -75,7 +75,7 @@
                     <div class="text-muted mt-1">${e.decision_summary || ''}</div>
                     ${lesson ? `<div class="mt-1"><strong>Lesson:</strong> ${lesson}</div>` : ''}
                     ${(e.repeat || e.avoid) ? `<div class="mt-1 small text-muted">Repeat: ${(e.repeat || []).join('; ') || '—'} · Avoid: ${(e.avoid || []).join('; ') || '—'}</div>` : ''}
-                    ${e.plan_id ? `<div class="mt-1 small"><a href="/terminal">Review plan ${e.plan_id.slice(0, 8)}…</a></div>` : ''}
+                    ${e.plan_id ? `<div class="mt-1 small"><a href="/terminal?plan_id=${encodeURIComponent(e.plan_id)}">Open Decision Review</a></div>` : ''}
                 </div>`;
             }).join('');
         }

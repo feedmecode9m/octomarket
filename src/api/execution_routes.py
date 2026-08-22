@@ -31,22 +31,12 @@ def _current_prices(for_symbol: Optional[str] = None) -> dict:
 
 
 def _record_fill_in_journal(order: dict, fill: dict):
+    """Record fills for ReplayRecord lifecycle — not the legacy AI trade journal."""
     role = order.get("role", "entry")
     if role == "entry" and order["side"] == "buy":
-        _journal.record_execution(
-            symbol=order["symbol"],
-            side=order["side"],
-            entry_price=fill.get("fill_price", 0),
-            quantity=fill.get("quantity", order["quantity"]),
-            order_id=order["id"],
-            trade_plan=order.get("trade_plan"),
-        )
         _record_replay_fill(order, fill, exit_reason=None)
         _cancel_duplicate_plan_entries(order)
     elif role in ("stop_loss", "take_profit") and order["side"] == "sell":
-        parent_id = order.get("parent_id")
-        if parent_id:
-            _journal.close_by_order_id(parent_id, fill.get("fill_price", 0))
         _record_replay_fill(order, fill, exit_reason=role)
 
 
@@ -206,11 +196,6 @@ def close_position():
         if order["symbol"] == symbol:
             _orders.cancel_order(order["id"])
 
-    for entry in _journal.get_all():
-        if entry["symbol"] == symbol and entry["status"] == "open":
-            _journal.update_exit(entry["id"], price)
-            break
-
     pos_qty = pos.get("quantity")
     from ..replay.replay_memory import get_replay_memory
 
@@ -244,7 +229,40 @@ def terminal_account():
 
 @execution_bp.route("/terminal/history", methods=["GET"])
 def terminal_history():
-    history = _journal.get_history()
+    """User-facing trade history — canonical Learning Journal entries."""
+    from ..learning.journal_service import get_learning_journal_service
+    from ..replay.replay_memory import get_replay_memory
+
+    entries = get_learning_journal_service().list_entries(limit=50)
+    memory = get_replay_memory()
+    history = []
+    for entry in entries:
+        outcome = entry.get("outcome_snapshot") or entry.get("outcome") or {}
+        scoring = entry.get("scoring_snapshot") or entry.get("scoring") or {}
+        plan_id = entry.get("plan_id")
+        record = memory.get_by_plan_id(plan_id) if plan_id else None
+        execution = (record or {}).get("execution") or {}
+        entry_fill = execution.get("entry") or {}
+        exit_fill = execution.get("exit") or {}
+        history.append({
+            "id": entry.get("id"),
+            "plan_id": plan_id,
+            "symbol": entry.get("instrument_id") or entry.get("symbol"),
+            "date": entry.get("date"),
+            "entry_price": entry_fill.get("price"),
+            "exit_price": exit_fill.get("price"),
+            "duration": None,
+            "result": {
+                "pnl": outcome.get("pnl"),
+                "win_loss": outcome.get("win_loss"),
+                "r_multiple": outcome.get("r_multiple"),
+            },
+            "decision_score": scoring.get("decision_score"),
+            "decision_summary": entry.get("decision_summary"),
+            "trade_plan": {
+                "setup": entry.get("strategy_name") or entry.get("strategy_id") or "manual",
+            },
+        })
     fills = []
     for record in _portfolio.trade_history:
         fills.append({
@@ -255,7 +273,7 @@ def terminal_history():
             "fill_price": record.fill_price,
             "commission": record.commission,
         })
-    return jsonify({"history": history, "fills": fills[-50:]})
+    return jsonify({"history": history, "fills": fills[-50:], "source": "learning_journal"})
 
 
 @execution_bp.route("/journal/<entry_id>/review", methods=["PUT"])

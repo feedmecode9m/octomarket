@@ -94,7 +94,9 @@
         .om-stat-row { display: flex; gap: 1.25rem; font-size: 0.72rem; color: var(--om-text-muted, #888); margin-top: 2px; }
         .om-stat-row strong { color: var(--om-text, #fff); }
         .terminal-brand { display: flex; align-items: center; gap: 0.5rem; }
-        .terminal-brand img { height: 22px; }
+        .plan-link-indicator { font-size: 0.68rem; padding: 4px 6px; border-radius: 4px; margin-top: 4px; }
+        .plan-link-active { background: rgba(0, 255, 136, 0.12); color: var(--accent-success); border: 1px solid rgba(0, 255, 136, 0.35); }
+        .plan-link-none { background: rgba(255, 165, 2, 0.1); color: var(--accent-warning); border: 1px solid rgba(255, 165, 2, 0.35); }
     </style>
 </head>
 <body tabindex="0" class="om-body">
@@ -110,9 +112,12 @@
                 <span>Equity: <strong id="statEquity">$10,000</strong></span>
                 <span>Risk: <strong id="statRisk">—</strong></span>
             </div>
-            <span class="session-badge session-live ms-0 mt-1 d-inline-block" id="modeBadge">LIVE PAPER</span>
-            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="sessionBadge">IDLE</span>
-            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="marketSessionBadge">NYSE</span>
+            <span class="session-badge session-live ms-0 mt-1 d-inline-block" id="modeBadge"
+                title="Operating mode: LIVE PAPER uses watchlist/live quotes; REPLAY uses stepped historical candles">LIVE PAPER</span>
+            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="sessionBadge"
+                title="Replay session progress">IDLE</span>
+            <span class="session-badge session-idle ms-1 mt-1 d-inline-block" id="marketSessionBadge"
+                title="Instrument market hours (informational)">NYSE</span>
             <span class="text-muted ms-2" id="sessionProgress"></span>
             <span class="hotkey-hint ms-2">B=Buy S=Sell X=Close ESC=Cancel</span>
         </div>
@@ -121,8 +126,8 @@
             <button class="btn btn-sm btn-outline-info me-1" id="playSessionBtn"><i class="fas fa-play-circle"></i> Play</button>
             <button class="btn btn-sm btn-outline-primary me-1" id="stepSessionBtn"><i class="fas fa-forward"></i> Step</button>
             <button class="btn btn-sm btn-outline-warning me-1" id="pauseSessionBtn"><i class="fas fa-pause"></i> Pause</button>
-            <button class="btn btn-sm btn-outline-secondary me-1" id="resetSessionBtn"><i class="fas fa-undo"></i> Reset</button>
-            <button class="btn btn-sm btn-outline-danger me-2" id="closeSessionBtn"><i class="fas fa-stop"></i> Close</button>
+            <button class="btn btn-sm btn-outline-secondary me-2" id="resetSessionBtn"
+                title="Exit Replay and restore your LIVE PAPER portfolio, orders, and journal state"><i class="fas fa-undo"></i> Exit Replay</button>
             <button class="btn btn-sm btn-outline-light me-1" id="startTourBtn" type="button" title="Guided simulation walkthrough">Tour</button>
             <a href="/" class="btn btn-sm btn-outline-light me-1">Home</a>
             <a href="/mentor" class="btn btn-sm btn-outline-warning btn-sm">Mentor</a>
@@ -295,7 +300,10 @@
                     <div>R:R Ratio: <span id="rrRatio">—</span></div>
                 </div>
                 <div id="coachReview" class="coach-warn mt-1" style="display:none"></div>
+                <div id="planLinkIndicator" class="plan-link-indicator plan-link-none">No active plan — trade will not generate Decision Review</div>
                 <button class="btn btn-buy btn-sm mt-2" id="placeOrderBtn">PLACE ORDER</button>
+                <button class="btn btn-outline-danger btn-sm mt-2 w-100" id="closePositionBtn" type="button"
+                    title="Close the open position for the ticket symbol (also hotkey: X)">CLOSE POSITION</button>
                 <div id="orderResult" class="small mt-1 text-muted"></div>
             </div>
             <div class="panel-header"><i class="fas fa-robot"></i> Commentary</div>
@@ -319,7 +327,7 @@
                 <div id="ordersTable"></div>
             </div>
             <div class="tab-content" id="tabHistory" style="display:none">
-                <div class="order-row header"><span>Symbol</span><span>Entry</span><span>Exit</span><span>Duration</span><span>P/L</span><span>Setup</span></div>
+                <div class="order-row header"><span>Symbol</span><span>Result</span><span>P/L</span><span>R</span><span>Decision</span><span>Review</span></div>
                 <div id="historyTable"></div>
             </div>
             <div class="tab-content" id="tabAccount" style="display:none">
@@ -370,6 +378,44 @@
                 payload.trade_plan = { plan_id: currentPlanId };
             }
             return payload;
+        }
+
+        function updatePlanLinkIndicator() {
+            const el = document.getElementById('planLinkIndicator');
+            if (!el) return;
+            if (currentPlanId) {
+                el.className = 'plan-link-indicator plan-link-active';
+                el.textContent = `Linked to plan ${currentPlanId.slice(0, 8)}… — fills can generate Decision Review`;
+            } else {
+                el.className = 'plan-link-indicator plan-link-none';
+                el.textContent = 'No active plan — trade will not generate Decision Review';
+            }
+        }
+
+        function scrollToDecisionReview() {
+            const panel = document.getElementById('replayReviewPanel');
+            if (!panel || panel.style.display === 'none') return;
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        async function surfaceDecisionReview(planId) {
+            if (!planId) return;
+            await loadReplayRecordReview(planId);
+            scrollToDecisionReview();
+        }
+
+        async function loadRecentClosedPlanReview() {
+            const params = new URLSearchParams(location.search);
+            const planFromUrl = params.get('plan_id');
+            if (planFromUrl) {
+                await surfaceDecisionReview(planFromUrl);
+                return;
+            }
+            const plans = await api('/api/trade-plan');
+            const completed = (plans.plans || [])
+                .filter((p) => p.status === 'COMPLETED')
+                .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+            if (completed.length) await surfaceDecisionReview(completed[0].id);
         }
 
         function updateRiskDisplay(metrics) {
@@ -504,11 +550,13 @@
             modeEl.textContent = replayActive ? 'REPLAY' : 'LIVE PAPER';
             modeEl.className = 'session-badge ' + (replayActive ? 'session-replay' : 'session-live') + ' ms-0 mt-1 d-inline-block';
             const venueState = payload.state || payload.status || 'idle';
-            sessionEl.textContent = String(venueState).toUpperCase();
-            sessionEl.className = 'session-badge ' + (
-                venueState === 'open' ? 'session-open' :
-                venueState === 'closed' ? 'session-closed' : 'session-idle'
-            ) + ' ms-1 mt-1 d-inline-block';
+            if (replayActive) {
+                sessionEl.textContent = venueState === 'paused' ? 'REPLAY PAUSED' : 'REPLAY ACTIVE';
+                sessionEl.className = 'session-badge session-replay ms-1 mt-1 d-inline-block';
+            } else {
+                sessionEl.textContent = 'LIVE IDLE';
+                sessionEl.className = 'session-badge session-idle ms-1 mt-1 d-inline-block';
+            }
             marketEl.textContent = replayActive ? 'Replay' : 'Live Paper';
             if (replayActive) {
                 const idx = Math.max(0, (payload.current_index ?? -1) + 1);
@@ -671,6 +719,7 @@
             if (plan.position_lots != null) document.getElementById('planQty').value = plan.position_lots;
             else if (plan.contracts != null) document.getElementById('planQty').value = plan.contracts;
             else if (plan.quantity != null) document.getElementById('planQty').value = plan.quantity;
+            updatePlanLinkIndicator();
         }
 
         function getPlanFormPayload() {
@@ -1019,6 +1068,7 @@
                 planEntrySource = null;
                 document.getElementById('planStatus').textContent = 'DRAFT';
                 updatePlanMetricsDisplay(null);
+                updatePlanLinkIndicator();
             }
         }
 
@@ -1072,7 +1122,7 @@
                 el.className = 'small mt-1 text-success';
                 refreshBottomPanel();
                 loadOrders();
-                if (currentPlanId) loadReplayRecordReview(currentPlanId);
+                if (currentPlanId) await surfaceDecisionReview(currentPlanId);
             } catch (err) {
                 el.textContent = err.message;
                 el.className = 'small mt-1 text-danger';
@@ -1252,13 +1302,21 @@
             const data = await api('/api/terminal/history');
             const el = document.getElementById('historyTable');
             const history = data.history || [];
-            if (!history.length) { el.innerHTML = '<div class="text-muted small">No closed trades</div>'; return; }
-            el.innerHTML = history.map(h => {
-                const pnl = h.result ? h.result.pnl : 0;
-                return `<div class="order-row"><span>${h.symbol}</span><span>$${h.entry_price.toFixed(2)}</span>
-                    <span>$${(h.exit_price||0).toFixed(2)}</span><span>${h.duration||'—'}</span>
-                    <span class="${pnl >= 0 ? 'bullish' : 'bearish'}">$${pnl.toFixed(2)}</span>
-                    <span>${(h.trade_plan||{}).setup||'—'}</span></div>`;
+            if (!history.length) {
+                el.innerHTML = '<div class="text-muted small">No closed planned trades yet. Complete a plan-linked trade to populate Learning Journal history.</div>';
+                return;
+            }
+            el.innerHTML = history.map((h) => {
+                const pnl = (h.result || {}).pnl;
+                const reviewHref = h.plan_id
+                    ? `/terminal?plan_id=${encodeURIComponent(h.plan_id)}`
+                    : '/journal';
+                return `<div class="order-row"><span>${h.symbol || '—'}</span>
+                    <span>${(h.result || {}).win_loss || '—'}</span>
+                    <span class="${pnl >= 0 ? 'bullish' : 'bearish'}">${pnl != null ? '$' + Number(pnl).toFixed(2) : '—'}</span>
+                    <span>${(h.result || {}).r_multiple != null ? Number(h.result.r_multiple).toFixed(2) : '—'}</span>
+                    <span>${h.decision_score != null ? h.decision_score : '—'}</span>
+                    <span><a href="${reviewHref}">Review</a></span></div>`;
             }).join('');
         }
 
@@ -1310,6 +1368,9 @@
                 el.textContent = `Order ${resp.order.status}: ${order.side.toUpperCase()} ${order.quantity} ${order.symbol}`;
                 el.className = 'small mt-1 text-success';
                 refreshBottomPanel(); loadChart(); loadCommentary();
+                if (currentPlanId && resp.order.status === 'FILLED') {
+                    await surfaceDecisionReview(currentPlanId);
+                }
             }
         }
 
@@ -1319,7 +1380,14 @@
             if (resp.error) alert(resp.error);
             else {
                 refreshBottomPanel();
-                if (currentPlanId) loadReplayRecordReview(currentPlanId);
+                if (currentPlanId) await surfaceDecisionReview(currentPlanId);
+                else {
+                    const plans = await api('/api/trade-plan');
+                    const completed = (plans.plans || [])
+                        .filter((p) => p.status === 'COMPLETED')
+                        .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+                    if (completed.length) await surfaceDecisionReview(completed[0].id);
+                }
             }
         }
 
@@ -1341,6 +1409,7 @@
         });
 
         document.getElementById('placeOrderBtn').onclick = placeOrder;
+        document.getElementById('closePositionBtn').onclick = closePosition;
         document.getElementById('addSymbolBtn').onclick = async () => {
             const sym = document.getElementById('addSymbolInput').value.trim().toUpperCase();
             if (sym) { await api('/api/watchlist', { method: 'POST', body: JSON.stringify({ symbol: sym }) }); loadWatchlist(); }
@@ -1408,14 +1477,6 @@
                 updateReplayDisplay(resp.state || resp);
                 await loadChart();
                 refreshBottomPanel();
-            }
-        };
-        document.getElementById('closeSessionBtn').onclick = async () => {
-            stopReplayPlay();
-            const resp = await api('/api/session/close', { method: 'POST' });
-            if (!resp.error) {
-                updateReplayDisplay(resp.state || resp);
-                await loadChart();
             }
         };
 
@@ -1557,6 +1618,8 @@
                 loadStats();
                 const session = await api('/api/session/state');
                 updateReplayDisplay(session);
+                updatePlanLinkIndicator();
+                await loadRecentClosedPlanReview();
                 if (new URLSearchParams(location.search).get('focus') === 'replay') {
                     const el = document.getElementById('startSessionBtn');
                     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
